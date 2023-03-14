@@ -1,2 +1,2 @@
-# gutil
-"gee util"  https://xkcd.com/1205/
+# wongutils
+https://xkcd.com/1205/
