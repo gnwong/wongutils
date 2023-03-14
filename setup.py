@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(name="wongutils",
       version="0.1",
@@ -7,6 +7,5 @@ setup(name="wongutils",
       author="gnwong",
       author_email="gnwong@ias.edu",
       license="MIT",
-      packages=["wongutils"],
+      packages=find_packages(),
       zip_safe=False)
-
