@@ -72,6 +72,9 @@ def get_header_coordinates(fname, verbose=False):
 
         elif metric in ['eks', 'mmks', 'fmks']:
 
+            # load black hole spin
+            coordinate_info['bhspin'] = hfp[header_name]['geom'][metric]['a'][()]
+
             # load size of coordinate grid
             coordinate_info['N1'] = hfp[header_name]['n1'][()]
             coordinate_info['N2'] = hfp[header_name]['n2'][()]
