@@ -86,3 +86,137 @@ def fishbone_moncrief(R, H, gamma, rin, rmax, bhspin, rho_floor=1.e-7, uu_floor=
     uu[R < rin] = uu_floor
 
     return rho, uu, up
+
+
+def chakrabarti(R, H, bhspin, rin, rmax, k_adi, gamma_adi, rho_max, potential_r_pow, potential_rho_pow,
+                potential_cutoff, potential_falloff, is_mad=True, rho_floor=1.e-7, uu_floor=1.e-7):
+    """Return Chakrabarti torus profile for 2d KS R, H mesh with
+    parameters pgen.
+
+    WARNING: THIS FUNCTION DOES NOT COMPUTE THE FOUR-VELOCITY
+    AND THUS RETURNS AN ARRAY OF ZEROES.
+
+    Chakrabarti, S. 1985, ApJ 288, 1"""
+
+    def LogHAux(bhspin, rin, rmax, cc, nn, r, sin_theta):
+        """Helper function to compute log enthalpy."""
+        l = calculate_L(bhspin, cc, nn, r, sin_theta)
+        u_t = calculate_covariant_ut(bhspin, r, sin_theta, l)
+        l_edge = calculate_L(bhspin, cc, nn, rin, 1.0)
+        u_t_edge = calculate_covariant_ut(bhspin, rin, 1.0, l_edge)
+        h = u_t_edge/u_t
+        if nn == 1.0:
+            h *= (l_edge/l)**(cc**2/(cc**2-1.0))
+        else:
+            pow_c = 2.0/nn
+            pow_l = 2.0-2.0/nn
+            pow_abs = nn/(2.0-2.0*nn)
+            h *= (abs(1.0 - cc**pow_c*l**pow_l)**pow_abs *
+                  abs(1.0 - cc**pow_c*l_edge**pow_l)**(-1.0*pow_abs))
+        if np.isfinite(h) and h >= 1.0:
+            logh = np.log(h)
+        else:
+            logh = -1.0
+        return logh
+
+    def calculate_cn(bhspin, rin, rmax):
+        """Compute the Chakrabarti parameter and power-law index."""
+        l_edge = ((rin ** 2 + bhspin ** 2 - 2.0 * bhspin * np.sqrt(rin)) /
+                  (np.sqrt(rin) * (rin - 2.0) + bhspin))
+        l_peak = ((rmax ** 2 + bhspin ** 2 - 2.0 * bhspin * np.sqrt(rmax)) /
+                  (np.sqrt(rmax) * (rmax - 2.0) + bhspin))
+        lambda_edge = np.sqrt((l_edge * (-2.0 * bhspin * l_edge + rin ** 3 +
+                                           bhspin ** 2 * (2.0 + rin))) /
+                                (2.0 * bhspin + l_edge * (rin - 2.0)))
+        lambda_peak = np.sqrt((l_peak * (-2.0 * bhspin * l_peak + rmax ** 3 +
+                                           bhspin ** 2 * (2.0 + rmax))) /
+                                (2.0 * bhspin + l_peak * (rmax - 2.0)))
+        nn = np.log(l_peak / l_edge) / np.log(lambda_peak / lambda_edge)
+        cc = l_edge * lambda_edge ** (-nn)
+        return cc, nn
+
+    def calculate_covariant_ut(bhspin, r, sin_theta, l):
+        """Compute u_t for torus in BL coordinates."""
+        sigma = r**2 + bhspin**2*(1.0 - sin_theta**2)
+        g_00 = -1.0 + 2.0*r/sigma
+        g_03 = -2.0*bhspin*r/sigma*sin_theta**2
+        g_33 = (r**2 + bhspin**2 +
+                2.0*bhspin**2*r/sigma*sin_theta**2)*sin_theta**2
+        u_t = -np.sqrt(max((g_03**2 - g_00*g_33)/(g_33 + 2.0*l*g_03 + l**2*g_00), 0.0))
+        return u_t
+
+    def calculate_L(bhspin, cc, nn, r, sin_theta):
+        """Calculate L in Chakrabarti torus."""
+        sigma = r**2 + bhspin**2 * (1.0 - sin_theta**2)
+        g_00 = -1.0 + 2.0 * r / sigma
+        g_03 = -2.0 * bhspin * r / sigma * sin_theta**2
+        g_33 = (r**2 + bhspin**2 + 2.0 * bhspin**2 * r / sigma * sin_theta**2) * sin_theta**2
+
+        # Perform bisection
+        l_min = 1.0
+        l_max = 100.0
+        l_val = 0.5 * (l_min + l_max)
+        max_iterations = 25
+        tol_rel = 1.0e-8
+        for n in range(max_iterations):
+            error_rel = 0.5 * (l_max - l_min) / l_val
+            if error_rel < tol_rel:
+                break
+            residual = (l_val / cc) ** (2.0 / nn) \
+                + (l_val * g_33 + l_val**2 * g_03) / (g_03 + l_val * g_00)
+            if residual < 0.0:
+                l_min = l_val
+                l_val = 0.5 * (l_min + l_max)
+            elif residual > 0.0:
+                l_max = l_val
+                l_val = 0.5 * (l_min + l_max)
+            elif residual == 0.0:
+                break
+                
+        return l_val
+    
+    rho = np.zeros_like(R)
+    pgas = np.zeros_like(R)
+    up = np.zeros_like(R)
+
+    Aphi = np.zeros_like(R)
+    
+    gm1 = gamma_adi - 1.
+    
+    cc, nn = calculate_cn(bhspin, rin, rmax)
+    
+    l_peak = calculate_L(bhspin, cc, nn, rmax, 1.0)
+    
+    log_h_edge = LogHAux(bhspin, rin, rmax, cc, nn, rin, 1.0)
+    log_h_peak = LogHAux(bhspin, rin, rmax, cc, nn, rmax, 1.0) - log_h_edge
+    pgas_over_rho_peak = gm1/gamma_adi * (np.exp(log_h_peak)-1.0)
+    rho_peak = np.power(pgas_over_rho_peak/k_adi, 1.0/gm1) / rho_max
+    
+    N1, N2 = R.shape
+    for i in range(N1):
+        for j in range(N2):
+            r = R[i, j]
+            theta = H[i, j]
+            sin_theta = np.sin(theta)
+            cos_theta = np.cos(theta)
+            sin_vartheta = np.abs(sin_theta)
+            
+            in_torus = False
+            if r > rin:
+                log_h = LogHAux(bhspin, rin, rmax, cc, nn, r, sin_vartheta) - log_h_edge
+                if log_h >= 0.:
+                        
+                    pgas_over_rho = gm1 / gamma_adi * (np.exp(log_h) - 1.0)
+                    rho[i, j] = np.power(pgas_over_rho / k_adi, 1.0/gm1) / rho_peak
+                    pgas[i, j] = pgas_over_rho * rho[i, j]
+
+                    if is_mad:
+                        Aphi[i, j] = (max((rho[i, j]*np.power((r/rin)*sin_vartheta, potential_r_pow)*
+                                       np.exp(-r/potential_falloff) - potential_cutoff), 0.0))
+                    else:
+                        Aphi[i, j] = (np.power(r, potential_r_pow)*
+                                 np.power(max(rho[i, j] - potential_cutoff, 0.0), potential_rho_pow))
+
+    uu = pgas / gm1
+    
+    return rho, uu, up, Aphi
