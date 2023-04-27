@@ -24,7 +24,7 @@ import numpy as np
 
 def fishbone_moncrief(R, H, gamma, rin, rmax, bhspin, rho_floor=1.e-7, uu_floor=1.e-7):
     """Return Fishbone-Moncrief torus profile for 2d KS R, H mesh with
-    parameters rin, rmax and for black hole with spin bhspin.
+    parameters gamma, rin, rmax and for black hole with spin bhspin.
 
     Fishbone & Moncrief 1976, ApJ 207 962
     Fishbone 1977, ApJ 215 323"""
