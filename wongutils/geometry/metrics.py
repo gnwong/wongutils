@@ -100,9 +100,83 @@ def get_gcov_eks_from_eks(bhspin, X1, X2, X3=None):
     return get_gcov_eks_from_ks(bhspin, R, H, P=P)
 
 
+def get_gcov_cks_from_cks(bhspin, X1, X2, X3):
+    """Return gcov with cks components from cks coordinate
+    mesh (X1, X2, X3)."""
+
+    R = np.sqrt(X1*X1 + X2*X2 + X3*X3)
+    r = np.sqrt(R**2 - bhspin**2 + np.sqrt((R**2-bhspin**2)**2 + 4*bhspin**2*X3**2)) \
+        / np.sqrt(2.0)
+
+    f = 2. * np.power(r, 3.) / (np.power(r, 4.) + bhspin*bhspin*X3*X3)
+    l0 = 1.
+    l1 = (r*X1 + bhspin*X2) / (r**2 + bhspin**2)
+    l2 = (r*X2 - bhspin*X1) / (r**2 + bhspin**2)
+    l3 = X3 / r
+
+    Nx, Ny, Nz = X1.shape
+    gcov_cks = np.zeros((4, 4, Nx, Ny, Nz))
+
+    gcov_cks[0, 0] = -1. + f * l0*l0
+    gcov_cks[0, 1] = f * l0*l1
+    gcov_cks[1, 0] = gcov_cks[0, 1]
+    gcov_cks[0, 2] = f * l0*l2
+    gcov_cks[2, 0] = gcov_cks[0, 2]
+    gcov_cks[0, 3] = f * l0*l3
+    gcov_cks[3, 0] = gcov_cks[0, 3]
+    gcov_cks[1, 1] = 1. + f * l1*l1
+    gcov_cks[1, 3] = f * l1*l3
+    gcov_cks[3, 1] = gcov_cks[1, 3]
+    gcov_cks[2, 2] = 1. + f * l2*l2
+    gcov_cks[2, 3] = f * l2*l3
+    gcov_cks[3, 2] = gcov_cks[2, 3]
+    gcov_cks[1, 2] = f * l1*l2
+    gcov_cks[2, 1] = gcov_cks[1, 2]
+    gcov_cks[3, 3] = 1. + f * l3*l3
+
+    return gcov_cks
+
+
+def get_gcon_cks_from_cks(bhspin, X1, X2, X3):
+    """Return gcon with cks components from cks coordinate
+    mesh (X1, X2, X3)."""
+
+    R = np.sqrt(X1*X1 + X2*X2 + X3*X3)
+    r = np.sqrt(R**2 - bhspin**2 + np.sqrt((R**2-bhspin**2)**2 + 4*bhspin**2*X3**2)) \
+        / np.sqrt(2.0)
+
+    f = 2. * np.power(r, 3.) / (np.power(r, 4.) + bhspin*bhspin*X3*X3)
+    l0 = -1.
+    l1 = (r*X1 + bhspin*X2) / (r**2 + bhspin**2)
+    l2 = (r*X2 - bhspin*X1) / (r**2 + bhspin**2)
+    l3 = X3 / r
+
+    Nx, Ny, Nz = X1.shape
+    gcon_cks = np.zeros((4, 4, Nx, Ny, Nz))
+
+    gcon_cks[0, 0] = -1. - f * l0*l0
+    gcon_cks[0, 1] = -f * l0*l1
+    gcon_cks[1, 0] = gcon_cks[0, 1]
+    gcon_cks[0, 2] = -f * l0*l2
+    gcon_cks[2, 0] = gcon_cks[0, 2]
+    gcon_cks[0, 3] = -f * l0*l3
+    gcon_cks[3, 0] = gcon_cks[0, 3]
+    gcon_cks[1, 1] = 1. - f*l1*l1
+    gcon_cks[1, 3] = -f * l1*l3
+    gcon_cks[3, 1] = gcon_cks[1, 3]
+    gcon_cks[2, 2] = 1. - f * l2*l2
+    gcon_cks[2, 3] = -f * l2*l3
+    gcon_cks[3, 2] = gcon_cks[2, 3]
+    gcon_cks[1, 2] = -f * l1*l2
+    gcon_cks[2, 1] = gcon_cks[1, 2]
+    gcon_cks[3, 3] = 1. - f * l3*l3
+
+    return gcon_cks
+
+
 def get_gcov_fmks_from_fmks(coordinate_info, X1, X2, X3=None):
     """Return gcov with fmks components from fmks coordinate
-    mesh (x1, x2, x3). This function assumes regularity in x3."""
+    mesh (X1, X2, X3). This function assumes regularity in x3."""
 
     # get grid geometry
     if X3 is not None:
