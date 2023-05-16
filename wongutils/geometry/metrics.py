@@ -61,6 +61,75 @@ def get_gcov_ks_from_ks(bhspin, R, H, P=None):
     return gcov
 
 
+def get_gcov_bl_from_bl(bhspin, R, H, P=None):
+    """Return gcov with bl components from bl/ks coordinate
+    mesh (R, H, P). This function assumes regularity in P."""
+
+    # get grid geometry
+    if P is not None:
+        N1, N2, N3 = R.shape
+        R = R[:, :, 0]
+        H = H[:, :, 0]
+    else:
+        N1, N2 = R.shape
+
+    Sigma = R*R + bhspin*bhspin * np.cos(H)*np.cos(H)
+    Delta = R*R - 2.*R + bhspin*bhspin
+
+    # generate metric over 2d mesh
+    gcov = np.zeros((N1, N2, 4, 4))
+    gcov[:, :, 0, 0] = - (1. - 2.*R / Sigma)
+    gcov[:, :, 1, 1] = Sigma / Delta
+    gcov[:, :, 2, 2] = Sigma
+    gcov[:, :, 3, 3] = R*R + bhspin*bhspin + 2.*R*bhspin*bhspin*np.sin(H)*np.sin(H)/Sigma
+    gcov[:, :, 3, 3] *= np.sin(H) * np.sin(H)
+    gcov[:, :, 0, 3] = -2. * R * bhspin * np.sin(H)*np.sin(H) / Sigma
+    gcov[:, :, 3, 0] = gcov[:, :, 0, 3]
+
+    # extend along P dimension if applicable
+    if P is not None:
+        gcov2d = gcov
+        gcov = np.zeros((N1, N2, N3, 4, 4))
+        gcov[:, :, :, :, :] = gcov2d[:, :, None, :, :]
+
+    return gcov
+
+
+def get_gcon_bl_from_bl(bhspin, R, H, P=None):
+    """Return gcon with bl components from bl/ks coordinate
+    mesh (R, H, P). This function assumes regularity in P."""
+
+    # get grid geometry
+    if P is not None:
+        N1, N2, N3 = R.shape
+        R = R[:, :, 0]
+        H = H[:, :, 0]
+    else:
+        N1, N2 = R.shape
+
+    Sigma = R*R + bhspin*bhspin * np.cos(H)*np.cos(H)
+    Delta = R*R - 2.*R + bhspin*bhspin
+
+    # generate metric over 2d mesh
+    gcon = np.zeros((N1, N2, 4, 4))
+    gcon[:, :, 0, 0] = - (R*R + bhspin*bhspin + 2.*R*bhspin*bhspin
+                          / Sigma*np.sin(H)*np.sin(H)) / Delta
+    gcon[:, :, 1, 1] = Delta / Sigma
+    gcon[:, :, 2, 2] = 1. / Sigma
+    gcon[:, :, 3, 3] = Delta - bhspin*bhspin*np.sin(H)*np.sin(H)
+    gcon[:, :, 3, 3] /= Sigma * Delta * np.sin(H)*np.sin(H)
+    gcon[:, :, 0, 3] = -2. * R * bhspin / Sigma / Delta
+    gcon[:, :, 3, 0] = gcon[:, :, 0, 3]
+
+    # extend along P dimension if applicable
+    if P is not None:
+        gcon2d = gcon
+        gcon = np.zeros((N1, N2, N3, 4, 4))
+        gcon[:, :, :, :, :] = gcon2d[:, :, None, :, :]
+
+    return gcon
+
+
 def get_gcov_eks_from_ks(bhspin, R, H, P=None):
     """Return gcov with eks components from ks coordinate
     mesh (R, H, P). This function assumes regularity in P."""
