@@ -21,6 +21,7 @@ THE SOFTWARE.
 
 import numpy as np
 import h5py
+from wongutils.geometry import metrics
 
 
 def get_native_grid(fname, verbose=False, corners=True, array3d=False):
@@ -109,3 +110,54 @@ def get_header_coordinates(fname, verbose=False):
             raise NotImplementedError(f"unknown metric {metric}")
 
     return coordinate_info
+
+
+def load_snapshot(fname, gcov=None, gcon=None):
+    """Load fluid information from iharm-style snapshot file."""
+
+    if gcov is None:
+        coordinate_info = get_header_coordinates(fname)
+        x1, x2, x3 = get_native_grid(fname, corners=False)
+        X1, X2, X3 = np.meshgrid(x1, x2, x3, indexing='ij')
+        gcov = metrics.get_gcov_fmks_from_fmks(coordinate_info, X1, X2, X3=X3)
+
+    if gcon is None:
+        n3 = gcov.shape[2]
+        if np.allclose(gcov[:, :, 0], gcov[:, :, n3//3]) and \
+           np.allclose(gcov[:, :, 0], gcov[:, :, n3//2]):
+            gcov2d = gcov[:, :, 0, :, :]
+            gcon2d = np.linalg.inv(gcov2d)
+            gcon = np.zeros_like(gcov)
+            gcon[:, :, :, :, :] = gcon2d[:, :, None, :, :]
+        else:
+            gcon = np.linalg.inv(gcov)
+
+    # load fluid data from snapshot file
+    hfp = h5py.File(fname, 'r')
+    rho = np.array(hfp['prims'][:, :, :, 0])
+    UU = np.array(hfp['prims'][:, :, :, 1])
+    U = np.array(hfp['prims'][:, :, :, 2:5])
+    B = np.array(hfp['prims'][:, :, :, 5:8])
+    hfp.close()
+
+    N1, N2, N3 = rho.shape
+
+    # compute velocity four-vectors
+    alpha = 1. / np.sqrt(-gcon[:, :, :, 0, 0])
+    gamma = np.sqrt(1. + np.einsum('abci,abci->abc', np.einsum('abcij,abci->abcj',
+                                                               gcov[:, :, :, 1:, 1:],
+                                                               U), U))
+    ucon = np.zeros((N1, N2, N3, 4))
+    ucon[:, :, :, 1:] = -gamma[:, :, :, None]*alpha[:, :, :, None]*gcon[:, :, :, 0, 1:]
+    ucon[:, :, :, 1:] += U
+    ucon[:, :, :, 0] = gamma / alpha
+    ucov = np.einsum('abcij,abci->abcj', gcov, ucon)
+
+    # compute magnetic field four-vectors
+    bcon = np.zeros_like(ucon)
+    bcon[:, :, :, 0] = np.einsum('abci,abci->abc', B, ucov[:, :, :, 1:])
+    bcon[:, :, :, 1:] = B + ucon[:, :, :, 1:] * bcon[:, :, :, 0, None]
+    bcon[:, :, :, 1:] /= ucon[:, :, :, 0, None]
+    bcov = np.einsum('abcij,abci->abcj', gcov, bcon)
+
+    return (rho, UU, U, B, ucon, ucov, bcon, bcov)

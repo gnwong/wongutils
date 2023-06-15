@@ -267,8 +267,6 @@ def get_gcov_fmks_from_fmks(coordinate_info, X1, X2, X3=None):
     gcov_fmks = np.einsum('abki,abkj->abij', dxdX,
                           np.einsum('ablj,abkl->abkj', dxdX, gcov_ks))
 
-    print(x1[0], x2[0], R[0, 0], H[0, 0], dxdX[0, 0], gcov_ks[0, 0], gcov_fmks[0, 0])
-
     # extend along x3 dimension if applicable
     if X3 is not None:
         gcov2d_fmks = gcov_fmks
