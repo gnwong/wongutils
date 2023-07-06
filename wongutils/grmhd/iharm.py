@@ -88,7 +88,7 @@ def get_header_coordinates(fname, verbose=False):
             else:
                 coordinate_info['Rin'] = hfp[header_name]['geom'][metric]['Rin'][()]
             if 'r_out' in hfp[header_name]['geom'][metric]:
-                coordinate_info['Rin'] = hfp[header_name]['geom'][metric]['r_out'][()]
+                coordinate_info['Rout'] = hfp[header_name]['geom'][metric]['r_out'][()]
             else:
                 coordinate_info['Rout'] = hfp[header_name]['geom'][metric]['Rout'][()]
 
