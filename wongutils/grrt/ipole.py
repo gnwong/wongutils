@@ -61,6 +61,12 @@ def get_seed_value(dumpfiles, target_flux, munit_low, munit_high, logname=None, 
                 munit_low = munit / 10.
             break
         munit_low = munit
+    precise_text = f">> starting more precise fit with ({munit_low}, {munit_high})"
+    print(precise_text)
+    if logname is not None:
+        fp = open(logname, 'a')
+        fp.write(precise_text)
+        fp.close()
     return fit_munit(dumpfiles, target_flux, munit_low, munit_high, logname=logname, xtol=xtol, **kwargs)
 
 
