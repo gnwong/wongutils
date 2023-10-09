@@ -53,7 +53,7 @@ def get_seed_value(dumpfiles, target_flux, munit_low, munit_high, logname=None, 
     munit_high = None
     for mi, munit in enumerate(munits):
         flux_differences.append(evaluate_flux_difference(munit, dumpfiles, target_flux, logname=logname, **kwargs))
-        if flux_differences[-1] > target_flux:
+        if flux_differences[-1] > 0:
             if mi > 0:
                 munit_high = munit
             else:
@@ -65,7 +65,7 @@ def get_seed_value(dumpfiles, target_flux, munit_low, munit_high, logname=None, 
     print(precise_text)
     if logname is not None:
         fp = open(logname, 'a')
-        fp.write(precise_text)
+        fp.write(precise_text + "\n")
         fp.close()
     return fit_munit(dumpfiles, target_flux, munit_low, munit_high, logname=logname, xtol=xtol, **kwargs)
 
