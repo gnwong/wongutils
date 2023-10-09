@@ -45,6 +45,17 @@ def evaluate_flux_difference(munit, dumpfiles, target_flux, logname=None, unpol=
     return Ftot - target_flux
 
 
+def get_seed_value(dumpfiles, target_flux, munit_low, munit_high, logname=None, xtol=0.05, **kwargs):
+    """ TODO write documentation """
+    flux_differences = []
+    munits = np.logspace(np.log10(munit_low), np.log10(munit_high), 11)
+    for munit in munits:
+        flux_differences.append(evaluate_flux_difference(munit, dumpfiles, target_flux, logname=logname, **kwargs))
+    best_index = np.argmax(np.abs(flux_differences) == np.min(np.abs(flux_differences)))
+    tmunit = munits[best_index]
+    return fit_munit(dumpfiles, target_flux, tmunit/1.e2, tmunit*1.e2, logname=logname, xtol=xtol, **kwargs)
+
+
 def fit_munit(dumpfiles, target_flux, munit_low, munit_high, logname=None, xtol=0.05, fit_as_log=False, **kwargs):
     """ TODO (move to parent module?) """
     def fa(x): return x
