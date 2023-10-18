@@ -70,8 +70,10 @@ def get_seed_value(dumpfiles, target_flux, munit_low, munit_high, logname=None, 
     return fit_munit(dumpfiles, target_flux, munit_low, munit_high, logname=logname, xtol=xtol, **kwargs)
 
 
-def fit_munit(dumpfiles, target_flux, munit_low, munit_high, logname=None, xtol=0.05, fit_as_log=False, **kwargs):
+def fit_munit(dumpfiles, target_flux, munit_low, munit_high, logname=None, xtol=None, fit_as_log=False, **kwargs):
     """ TODO (move to parent module?) """
+    if xtol is None:
+        xtol = munit_low/10.
     def fa(x): return x
     def fb(x): return x
     if fit_as_log:
@@ -84,6 +86,57 @@ def fit_munit(dumpfiles, target_flux, munit_low, munit_high, logname=None, xtol=
         fp.write(f"result {munit}\n\n")
         fp.close()
     return munit
+
+
+def run_ipole(dumpfile, rlow=1, outfile=None, rhigh=40, thetacam=163, target=None, munit=1.e25, freqcgs=230.e9, res=160, verbose=False, unpol=False, tracef=None, executable="./ipole", onlyargs=False):
+    """ TODO """
+
+    if target is None:
+        target = "m87"
+    target = target.lower()
+
+    if target == "m87":
+        mbh = 6.5e9
+        dsource = 16.8e6
+    elif target == "sgra":
+        mbh = 4.1e6
+        dsource = 8127
+    else:
+        print(f"! unrecognized target \"{target}\"")
+
+    freqarg = f"--freqcgs={freqcgs}"
+    mbharg = f"--MBH={mbh}"
+    munitarg = f"--M_unit={munit}"
+    dsourcearg = f"--dsource={dsource}"
+    incarg = f"--thetacam={thetacam}"
+    rlowarg = f"--trat_small={rlow}"
+    rhigharg = f"--trat_large={rhigh}"
+    dumpfilearg = f"--dump={dumpfile}"
+    resarg = f"--nx={res} --ny={res}"
+
+    args = [executable, freqarg, mbharg, munitarg, dsourcearg, incarg, rlowarg, rhigharg, dumpfilearg, resarg]
+
+    if tracef is not None:
+        args += [f"--trace_outf={tracef}"]
+
+    if outfile is None:
+        args += ["-quench"]
+    else:
+        args += [f"--outfile={outfile}"]
+
+    if unpol:
+        args += ["-unpol"]
+
+    if onlyargs:
+        return args
+
+    if verbose:
+        print(" ... running \"" + " ".join(args) + "\"")
+
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    output = [z for y in [str(x)[2:-1].split('\\n') for x in proc.communicate()] for z in y]
+
+    return output
 
 
 def get_fluxes(dumpfile, rlow=1, rhigh=40, thetacam=163, target=None, munit=1.e25, freqcgs=230.e9, res=160, verbose=False, unpol=False):
