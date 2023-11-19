@@ -137,6 +137,9 @@ def linesearch(x, p, step_max, func, *args, max_its=100, alpha=1.e-4,
     print_verbose(verbose, '   .. now trying for quadratic step with lam', lam1)
 
     g1 = func(x + lam1*p, *args)
+    while not np.isfinite(g1):
+        lam1 /= 2.
+        g1 = func(x + lam1*p, *args)
 
     print_verbose(verbose, '      got', g1, 'compared to original', g0)
 
@@ -168,9 +171,10 @@ def linesearch(x, p, step_max, func, *args, max_its=100, alpha=1.e-4,
             print_verbose(verbose, '        accepted lam', lam1)
             return lam1 * normalization
 
-    warning = f'linesearch(...) failed to find acceptable criterion after {max_its} '
-    warning += f'steps. Returning most recent value for lam = {lam1}.'
-    warnings.warn(warning)
+    if verbose >= 0:
+        warning = f'linesearch(...) failed to find acceptable criterion after {max_its} '
+        warning += f'steps. Returning most recent value for lam = {lam1}.'
+        warnings.warn(warning)
 
     return lam1 * normalization
 
@@ -227,8 +231,9 @@ def newt(x, func, *args, step_max=100., max_its=200, tol_f=1.e-8, verbose=0):
             print_verbose(verbose, 'found minimum within acceptable tolerance')
             return x, False
 
-    warning = f'newt(...) failed to find minimum after {max_its} iterations. '
-    warning += f'Returning most recent value x = {x}.'
-    warnings.warn(warning)
+    if verbose >= 0:
+        warning = f'newt(...) failed to find minimum after {max_its} iterations. '
+        warning += f'Returning most recent value x = {x}.'
+        warnings.warn(warning)
 
     return x, True
