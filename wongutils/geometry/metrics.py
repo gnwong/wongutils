@@ -255,6 +255,9 @@ def get_gcov_fmks_from_fmks(coordinate_info, X1, X2, X3=None):
         x3 = X3[0, 0, :]
     else:
         N1, N2 = X1.shape
+        x1 = X1[:, 0]
+        x2 = X2[0, :]
+        x3 = [0.]
 
     R, H, P = coordinates.get_ks_from_fmks(coordinate_info, x1, x2, x3)
     R = R[:, :, 0]
