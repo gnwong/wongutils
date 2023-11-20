@@ -214,6 +214,13 @@ def newt(x, func, *args, step_max=100., max_its=200, tol_f=1.e-8, verbose=0):
         fjac = fdjac(x, func, *args)
         fvec = func(x, *args)
 
+        if not np.isfinite(fjac).all():
+            if verbose >= 0:
+                warning = f'newt(...) found non-finite value for jacobian on '
+                warning += f'iteration {it}. Returning last known valid value.'
+                warnings.warn(warning)
+            return x, True
+
         print_verbose(verbose, 'on iteration', it, 'at point', x)
         print_verbose(verbose, 'computed jacobian:\n', fjac)
 
