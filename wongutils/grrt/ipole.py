@@ -24,9 +24,11 @@ import numpy as np
 from scipy.optimize import brentq
 
 
-def evaluate_flux_difference(munit, dumpfiles, target_flux, logname=None, unpol=False, **kwargs):
+def evaluate_flux_difference(munit, dumpfiles, target_flux, logname=None, unpol=False,
+                             **kwargs):
     """
-    Evaluate the difference between the target flux and the flux from a set of dump files given a value of munit.
+    Evaluate the difference between the target flux and the flux from a set of dump
+    files given a value of munit.
 
     :arg munit: value of munit to use
 
@@ -38,7 +40,7 @@ def evaluate_flux_difference(munit, dumpfiles, target_flux, logname=None, unpol=
 
     :arg unpol: (default=False) run in unpolarized "total intensity" mode
 
-    :arg kwargs: keyword arguments to pass to get_fluxes(...) (e.g. rlow, rhigh, thetacam, etc.)
+    :arg kwargs: keyword arguments to pass to get_fluxes(...) (e.g., rlow, thetacam, etc.)
 
     :returns: difference between the target flux and the flux from the dump files
     """
@@ -63,9 +65,10 @@ def evaluate_flux_difference(munit, dumpfiles, target_flux, logname=None, unpol=
     return Ftot - target_flux
 
 
-def get_seed_value(dumpfiles, target_flux, munit_low, munit_high, logname=None, xtol=0.05, **kwargs):
+def get_seed_value(dumpfiles, target_flux, munit_low, munit_high, logname=None,
+                   xtol=0.05, **kwargs):
     """
-    Step through a range of seed values to find a good starting point for the flux fitting.
+    Step through range of seed values to find a good starting point for the flux fitting.
 
     :arg dumpfiles: list of dump files to use
 
@@ -79,17 +82,18 @@ def get_seed_value(dumpfiles, target_flux, munit_low, munit_high, logname=None, 
 
     :arg xtol: (default=0.05) x tolerance for the root finding algorithm
 
-    :arg kwargs: keyword arguments to pass to get_fluxes(...) (e.g. rlow, rhigh, thetacam, etc.)
+    :arg kwargs: keyword arguments to pass to get_fluxes(...) (e.g., rlow, thetacam, etc.)
 
     :returns: seed value for the flux fitting
     """
-    
+
     flux_differences = []
     munits = np.logspace(np.log10(munit_low), np.log10(munit_high), 11)
     munit_low = None
     munit_high = None
     for mi, munit in enumerate(munits):
-        flux_differences.append(evaluate_flux_difference(munit, dumpfiles, target_flux, logname=logname, **kwargs))
+        flux_differences.append(evaluate_flux_difference(munit, dumpfiles, target_flux,
+                                                         logname=logname, **kwargs))
         if flux_differences[-1] > 0:
             if mi > 0:
                 munit_high = munit
@@ -104,10 +108,12 @@ def get_seed_value(dumpfiles, target_flux, munit_low, munit_high, logname=None, 
         fp = open(logname, 'a')
         fp.write(precise_text + "\n")
         fp.close()
-    return fit_munit(dumpfiles, target_flux, munit_low, munit_high, logname=logname, xtol=xtol, **kwargs)
+    return fit_munit(dumpfiles, target_flux, munit_low, munit_high, logname=logname,
+                     xtol=xtol, **kwargs)
 
 
-def fit_munit(dumpfiles, target_flux, munit_low, munit_high, logname=None, xtol=None, fit_as_log=False, **kwargs):
+def fit_munit(dumpfiles, target_flux, munit_low, munit_high, logname=None, xtol=None,
+              fit_as_log=False, **kwargs):
     """
     Find the value of munit that gives the target flux.
 
@@ -126,17 +132,18 @@ def fit_munit(dumpfiles, target_flux, munit_low, munit_high, logname=None, xtol=
 
     # wrapper functions to allow fitting in log space
     if fit_as_log:
-        def fa(x): 
+        def fa(x):
             return np.exp(x)
-        def fb(x): 
+        def fb(x):  # noqa: E306
             return np.log(x)
     else:
-        def fa(x): 
+        def fa(x):
             return x
-        def fb(x): 
+        def fb(x):  # noqa: E306
             return x
 
-    root = brentq(lambda x: evaluate_flux_difference(fa(x), dumpfiles, target_flux, logname=logname, **kwargs), fb(munit_low), fb(munit_high), xtol=xtol)
+    root = brentq(lambda x: evaluate_flux_difference(fa(x), dumpfiles, target_flux,
+                  logname=logname, **kwargs), fb(munit_low), fb(munit_high), xtol=xtol)
     munit = fa(root)
 
     if logname is not None:
@@ -147,7 +154,9 @@ def fit_munit(dumpfiles, target_flux, munit_low, munit_high, logname=None, xtol=
     return munit
 
 
-def run_ipole(dumpfile, outfile=None, rlow=1, rhigh=40, thetacam=163, target='m87', munit=1.e25, freqcgs=230.e9, res=160, verbose=False, unpol=False, tracef=None, executable="./ipole", onlyargs=False):
+def run_ipole(dumpfile, outfile=None, rlow=1, rhigh=40, thetacam=163, target='m87',
+              munit=1.e25, freqcgs=230.e9, res=160, verbose=False, unpol=False,
+              tracef=None, executable="./ipole", onlyargs=False):
     """
     Wrapper for ipole executable.
 
@@ -177,7 +186,7 @@ def run_ipole(dumpfile, outfile=None, rlow=1, rhigh=40, thetacam=163, target='m8
 
     :arg executable: (default="./ipole") path to the ipole executable
 
-    :arg onlyargs: (default=False) return the arguments to the executable instead of running it
+    :arg onlyargs: (default=False) return the arguments instead of running the executable
 
     :returns: list of strings containing the output of the executable
     """
@@ -205,7 +214,8 @@ def run_ipole(dumpfile, outfile=None, rlow=1, rhigh=40, thetacam=163, target='m8
     dumpfilearg = f"--dump={dumpfile}"
     resarg = f"--nx={res} --ny={res}"
 
-    args = [executable, freqarg, mbharg, munitarg, dsourcearg, incarg, rlowarg, rhigharg, dumpfilearg, resarg]
+    args = [executable, freqarg, mbharg, munitarg, dsourcearg, incarg, rlowarg,
+            rhigharg, dumpfilearg, resarg]
 
     if tracef is not None:
         args += [f"--trace_outf={tracef}"]
@@ -224,13 +234,14 @@ def run_ipole(dumpfile, outfile=None, rlow=1, rhigh=40, thetacam=163, target='m8
     if verbose:
         print(" ... running \"" + " ".join(args) + "\"")
 
-    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    output = [z for y in [str(x)[2:-1].split('\\n') for x in proc.communicate()] for z in y]
+    p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    output = [z for y in [str(x)[2:-1].split('\\n') for x in p.communicate()] for z in y]
 
     return output
 
 
-def get_fluxes(dumpfile, rlow=1, rhigh=40, thetacam=163, target='m87', munit=1.e25, freqcgs=230.e9, res=160, verbose=False, unpol=False):
+def get_fluxes(dumpfile, rlow=1, rhigh=40, thetacam=163, target='m87', munit=1.e25,
+               freqcgs=230.e9, res=160, verbose=False, unpol=False):
     """
     Get the fluxes from an ipole run.
 
@@ -280,7 +291,7 @@ def get_fluxes(dumpfile, rlow=1, rhigh=40, thetacam=163, target='m87', munit=1.e
     dumpfilearg = f"--dump={dumpfile}"
     resarg = f"--nx={res} --ny={res}"
 
-    args = [exe, freqarg, mbharg, munitarg, dsourcearg, incarg, rlowarg, 
+    args = [exe, freqarg, mbharg, munitarg, dsourcearg, incarg, rlowarg,
             rhigharg, dumpfilearg, resarg]
     args += ["-quench"]
     if unpol:
@@ -290,7 +301,7 @@ def get_fluxes(dumpfile, rlow=1, rhigh=40, thetacam=163, target='m87', munit=1.e
         print(" ... running \"" + " ".join(args) + "\"")
 
     proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    output = [z for y in 
+    output = [z for y in
               [str(x)[2:-1].split('\\n') for x in proc.communicate()] for z in y]
     Ftot_line = [line for line in output if 'unpol xfer' in line][0]
     st = Ftot_line.split()
