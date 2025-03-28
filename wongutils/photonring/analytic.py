@@ -124,3 +124,33 @@ def get_lyapunov_theta(bhspin, r):
     lyap *= ellipk(upsq/umsq)
 
     return lyap
+
+
+def get_critical_curve(bhspin, inc, npts=100000):
+    """
+    Return the "critical curve" (the boundary of the black hole shadow) given
+    a black hole spin and inclination angle sampled along the "top half" of
+    the image plane.
+
+    :arg bhspin: dimensionless spin of the black hole
+    :arg inc: inclination angle in degrees
+    :arg npts: (default) number of radial points to evaluate for curve
+
+    :returns: (alpha, beta) coordinates of critical curve in GM/c^2 on image plane
+    """
+
+    inc = np.radians(inc)
+
+    rmin, rmax = get_rpm(bhspin)
+    rs = np.linspace(rmin, rmax, npts)
+
+    xi = - (rs**2. * (rs - 3.) + bhspin**2. * (rs + 1.)) / bhspin / (rs - 1.)
+    eta = rs**3. * (4. * bhspin**2. - rs * (rs - 3.)**2.)
+    eta = eta / (bhspin * (rs-1.))**2.
+
+    alphas = - xi / np.sin(inc)
+    betas = np.sqrt(eta + bhspin**2.*np.cos(inc)**2. - xi**2./np.tan(inc)**2.)
+
+    mask = np.isfinite(alphas) & np.isfinite(betas)
+
+    return alphas[mask], betas[mask]
