@@ -183,7 +183,7 @@ def test_coordinate_transforms():
 
 
 def test_dxdx_metrics():
-    """unit tests to ensure dxdX functions correctly translate between
+    """Unit tests to ensure dxdX functions correctly translate between
     metrics in different coordinate systems."""
 
     bhspin = 0.2
