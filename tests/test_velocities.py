@@ -15,6 +15,22 @@ def test_midplane():
             f"ucon_bl {r}: {ucon_bl} != {ucon}"
 
 
+def test_off_midplane():
+    """Reproduces original tests in kgeo for Velocity."""
+    tests = {
+        (1., 1., 1., 0.22, 9., 0.314159): [1.14124, 0, 0, 0.0419266],
+        (0.8, 1., 1., 0.4, 6.4, 0.314159): [1.21232, 0, 0, 0.0591806],
+        (0.8, 1., 1., 0.4, 4.1, 0.314159): [1.47326, -0.224901, 0, 0.136996],
+        (0.4, 0.7, 0.3, 0.7, 6., 0.314159): [1.24774, -0.172259, 0, 0.0166473],
+        (0.6, 0.9, 0.83, 0.47, 5.5, 2.13628): [1.28167, -0.0603954, 0, 0.0511066],
+        (0.6, 0.9, 0.83, 0.47, 1.95, 2.13628): [23.3886, -0.688401, 0, 2.96553]
+    }
+    for (subkep, f_r, f_p, a, r, h), ucon in tests.items():
+        ucon_bl, _ = velocities.ucon_bl_general_subkep(r, h, a, subkep, f_r, f_p)
+        assert np.allclose(ucon_bl, ucon, rtol=1.e-5), \
+            f"ucon_bl {r}: {ucon_bl} != {ucon}"
+
+
 def _test_input_sizes():
     """Check if the function works with both scalars and arrays."""
     bhspin = 0.42
@@ -31,5 +47,5 @@ def _test_input_sizes():
 if __name__ == "__main__":
 
     test_midplane()
-    # TODO: test off midplane (still need comparison data)
+    test_off_midplane()
     #test_input_sizes()
