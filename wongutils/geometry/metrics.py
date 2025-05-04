@@ -27,6 +27,13 @@ def get_gcov_ks_from_ks(bhspin, R, H, P=None):
     """Return gcov with ks components from ks coordinate
     mesh (R, H, P). This function assumes regularity in P."""
 
+    # check if R is a scalar (bit of a kludge)
+    input_was_scalar = False
+    if np.isscalar(R):
+        R = np.array([R]).reshape((1, 1))
+        H = np.array([H]).reshape((1, 1))
+        input_was_scalar = True
+
     # get grid geometry
     if P is not None:
         N1, N2, N3 = R.shape
@@ -58,12 +65,23 @@ def get_gcov_ks_from_ks(bhspin, R, H, P=None):
         gcov = np.zeros((N1, N2, N3, 4, 4))
         gcov[:, :, :, :, :] = gcov2d[:, :, None, :, :]
 
+    # if input was a scalar, return a scalar
+    if input_was_scalar:
+        gcov = gcov[0, 0]
+
     return gcov
 
 
 def get_gcov_bl_from_bl(bhspin, R, H, P=None):
     """Return gcov with bl components from bl/ks coordinate
     mesh (R, H, P). This function assumes regularity in P."""
+
+    # check if R is a scalar (bit of a kludge)
+    input_was_scalar = False
+    if np.isscalar(R):
+        R = np.array([R]).reshape((1, 1))
+        H = np.array([H]).reshape((1, 1))
+        input_was_scalar = True
 
     # get grid geometry
     if P is not None:
@@ -92,12 +110,23 @@ def get_gcov_bl_from_bl(bhspin, R, H, P=None):
         gcov = np.zeros((N1, N2, N3, 4, 4))
         gcov[:, :, :, :, :] = gcov2d[:, :, None, :, :]
 
+    # if input was a scalar, return a scalar
+    if input_was_scalar:
+        gcov = gcov[0, 0]
+
     return gcov
 
 
 def get_gcon_bl_from_bl(bhspin, R, H, P=None):
     """Return gcon with bl components from bl/ks coordinate
     mesh (R, H, P). This function assumes regularity in P."""
+
+    # check if R is a scalar (bit of a kludge)
+    input_was_scalar = False
+    if np.isscalar(R):
+        R = np.array([R]).reshape((1, 1))
+        H = np.array([H]).reshape((1, 1))
+        input_was_scalar = True
 
     # get grid geometry
     if P is not None:
@@ -126,6 +155,10 @@ def get_gcon_bl_from_bl(bhspin, R, H, P=None):
         gcon2d = gcon
         gcon = np.zeros((N1, N2, N3, 4, 4))
         gcon[:, :, :, :, :] = gcon2d[:, :, None, :, :]
+
+    # if input was a scalar, return a scalar
+    if input_was_scalar:
+        gcon = gcon[0, 0]
 
     return gcon
 
@@ -173,6 +206,14 @@ def get_gcov_cks_from_cks(bhspin, X1, X2, X3):
     """Return gcov with cks components from cks coordinate
     mesh (X1, X2, X3)."""
 
+    # check if X1 is a scalar (bit of a kludge)
+    input_was_scalar = False
+    if np.isscalar(X1):
+        X1 = np.array([X1]).reshape((1, 1, 1))
+        X2 = np.array([X2]).reshape((1, 1, 1))
+        X3 = np.array([X3]).reshape((1, 1, 1))
+        input_was_scalar = True
+
     R = np.sqrt(X1*X1 + X2*X2 + X3*X3)
     r = np.sqrt(R**2 - bhspin**2 + np.sqrt((R**2-bhspin**2)**2 + 4*bhspin**2*X3**2)) \
         / np.sqrt(2.0)
@@ -184,24 +225,28 @@ def get_gcov_cks_from_cks(bhspin, X1, X2, X3):
     l3 = X3 / r
 
     Nx, Ny, Nz = X1.shape
-    gcov_cks = np.zeros((4, 4, Nx, Ny, Nz))
+    gcov_cks = np.zeros((Nx, Ny, Nz, 4, 4))
 
-    gcov_cks[0, 0] = -1. + f * l0*l0
-    gcov_cks[0, 1] = f * l0*l1
-    gcov_cks[1, 0] = gcov_cks[0, 1]
-    gcov_cks[0, 2] = f * l0*l2
-    gcov_cks[2, 0] = gcov_cks[0, 2]
-    gcov_cks[0, 3] = f * l0*l3
-    gcov_cks[3, 0] = gcov_cks[0, 3]
-    gcov_cks[1, 1] = 1. + f * l1*l1
-    gcov_cks[1, 3] = f * l1*l3
-    gcov_cks[3, 1] = gcov_cks[1, 3]
-    gcov_cks[2, 2] = 1. + f * l2*l2
-    gcov_cks[2, 3] = f * l2*l3
-    gcov_cks[3, 2] = gcov_cks[2, 3]
-    gcov_cks[1, 2] = f * l1*l2
-    gcov_cks[2, 1] = gcov_cks[1, 2]
-    gcov_cks[3, 3] = 1. + f * l3*l3
+    gcov_cks[..., 0, 0] = -1. + f * l0*l0
+    gcov_cks[..., 0, 1] = f * l0*l1
+    gcov_cks[..., 1, 0] = gcov_cks[..., 0, 1]
+    gcov_cks[..., 0, 2] = f * l0*l2
+    gcov_cks[..., 2, 0] = gcov_cks[..., 0, 2]
+    gcov_cks[..., 0, 3] = f * l0*l3
+    gcov_cks[..., 3, 0] = gcov_cks[..., 0, 3]
+    gcov_cks[..., 1, 1] = 1. + f * l1*l1
+    gcov_cks[..., 1, 3] = f * l1*l3
+    gcov_cks[..., 3, 1] = gcov_cks[..., 1, 3]
+    gcov_cks[..., 2, 2] = 1. + f * l2*l2
+    gcov_cks[..., 2, 3] = f * l2*l3
+    gcov_cks[..., 3, 2] = gcov_cks[..., 2, 3]
+    gcov_cks[..., 1, 2] = f * l1*l2
+    gcov_cks[..., 2, 1] = gcov_cks[..., 1, 2]
+    gcov_cks[..., 3, 3] = 1. + f * l3*l3
+
+    # if input was a scalar, return a scalar
+    if input_was_scalar:
+        gcov_cks = gcov_cks[0, 0, 0]
 
     return gcov_cks
 
@@ -209,6 +254,14 @@ def get_gcov_cks_from_cks(bhspin, X1, X2, X3):
 def get_gcon_cks_from_cks(bhspin, X1, X2, X3):
     """Return gcon with cks components from cks coordinate
     mesh (X1, X2, X3)."""
+
+    # check if X1 is a scalar (bit of a kludge)
+    input_was_scalar = False
+    if np.isscalar(X1):
+        X1 = np.array([X1]).reshape((1, 1, 1))
+        X2 = np.array([X2]).reshape((1, 1, 1))
+        X3 = np.array([X3]).reshape((1, 1, 1))
+        input_was_scalar = True
 
     R = np.sqrt(X1*X1 + X2*X2 + X3*X3)
     r = np.sqrt(R**2 - bhspin**2 + np.sqrt((R**2-bhspin**2)**2 + 4*bhspin**2*X3**2)) \
@@ -221,24 +274,28 @@ def get_gcon_cks_from_cks(bhspin, X1, X2, X3):
     l3 = X3 / r
 
     Nx, Ny, Nz = X1.shape
-    gcon_cks = np.zeros((4, 4, Nx, Ny, Nz))
+    gcon_cks = np.zeros((Nx, Ny, Nz, 4, 4))
 
-    gcon_cks[0, 0] = -1. - f * l0*l0
-    gcon_cks[0, 1] = -f * l0*l1
-    gcon_cks[1, 0] = gcon_cks[0, 1]
-    gcon_cks[0, 2] = -f * l0*l2
-    gcon_cks[2, 0] = gcon_cks[0, 2]
-    gcon_cks[0, 3] = -f * l0*l3
-    gcon_cks[3, 0] = gcon_cks[0, 3]
-    gcon_cks[1, 1] = 1. - f*l1*l1
-    gcon_cks[1, 3] = -f * l1*l3
-    gcon_cks[3, 1] = gcon_cks[1, 3]
-    gcon_cks[2, 2] = 1. - f * l2*l2
-    gcon_cks[2, 3] = -f * l2*l3
-    gcon_cks[3, 2] = gcon_cks[2, 3]
-    gcon_cks[1, 2] = -f * l1*l2
-    gcon_cks[2, 1] = gcon_cks[1, 2]
-    gcon_cks[3, 3] = 1. - f * l3*l3
+    gcon_cks[..., 0, 0] = -1. - f * l0*l0
+    gcon_cks[..., 0, 1] = -f * l0*l1
+    gcon_cks[..., 1, 0] = gcon_cks[..., 0, 1]
+    gcon_cks[..., 0, 2] = -f * l0*l2
+    gcon_cks[..., 2, 0] = gcon_cks[..., 0, 2]
+    gcon_cks[..., 0, 3] = -f * l0*l3
+    gcon_cks[..., 3, 0] = gcon_cks[..., 0, 3]
+    gcon_cks[..., 1, 1] = 1. - f*l1*l1
+    gcon_cks[..., 1, 3] = -f * l1*l3
+    gcon_cks[..., 3, 1] = gcon_cks[..., 1, 3]
+    gcon_cks[..., 2, 2] = 1. - f * l2*l2
+    gcon_cks[..., 2, 3] = -f * l2*l3
+    gcon_cks[..., 3, 2] = gcon_cks[..., 2, 3]
+    gcon_cks[..., 1, 2] = -f * l1*l2
+    gcon_cks[..., 2, 1] = gcon_cks[..., 1, 2]
+    gcon_cks[..., 3, 3] = 1. - f * l3*l3
+
+    # if input was a scalar, return a scalar
+    if input_was_scalar:
+        gcon_cks = gcon_cks[0, 0, 0]
 
     return gcon_cks
 
@@ -246,6 +303,13 @@ def get_gcon_cks_from_cks(bhspin, X1, X2, X3):
 def get_gcov_fmks_from_fmks(coordinate_info, X1, X2, X3=None):
     """Return gcov with fmks components from fmks coordinate
     mesh (X1, X2, X3). This function assumes regularity in x3."""
+
+    # deal with possible input scalars
+    input_was_scalar = False
+    if np.isscalar(X1):
+        X1 = np.array([X1]).reshape((1, 1))
+        X2 = np.array([X2]).reshape((1, 1))
+        input_was_scalar = True
 
     # get grid geometry
     if X3 is not None:
@@ -275,5 +339,9 @@ def get_gcov_fmks_from_fmks(coordinate_info, X1, X2, X3=None):
         gcov2d_fmks = gcov_fmks
         gcov_fmks = np.zeros((N1, N2, N3, 4, 4))
         gcov_fmks[:, :, :, :, :] = gcov2d_fmks[:, :, None, :, :]
+
+    # if input was a scalar, return a scalar
+    if input_was_scalar:
+        gcov_fmks = gcov_fmks[0, 0]
 
     return gcov_fmks
