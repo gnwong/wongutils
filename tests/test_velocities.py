@@ -43,7 +43,8 @@ def test_input_sizes():
     ucon_bl, ucov_bl = velocities.ucon_bl_general_subkep(R, H, bhspin, subkep, f_r, f_p)
     for ir, tr in enumerate(rvals):
         for ih, th in enumerate(hvals):
-            ucon_bl_scalar, ucov_bl_scalar = velocities.ucon_bl_general_subkep(tr, th, bhspin, subkep, f_r, f_p)
+            ucon_bl_scalar, ucov_bl_scalar = \
+                velocities.ucon_bl_general_subkep(tr, th, bhspin, subkep, f_r, f_p)
             assert np.allclose(ucon_bl[ir, ih], ucon_bl_scalar), \
                 f"ucon_bl {tr}, {th}: {ucon_bl[ir, ih]} != {ucon_bl_scalar}"
             assert np.allclose(ucov_bl[ir, ih], ucov_bl_scalar), \

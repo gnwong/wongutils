@@ -121,7 +121,7 @@ def _bl_subkep_cunningham(r, h, bhspin, subkep):
     if mask_isco.any():
         E = bl_Ucov_isco[..., 0]
         L = bl_Ucov_isco[..., 3]
-        vr = 1. + gcon_bl[..., 0, 0] * E * E + 2. * gcon_bl[..., 0, 3] * E * L + gcon_bl[..., 3, 3] * L * L
+        vr = 1.+gcon_bl[..., 0, 0]*E*E+2.*gcon_bl[..., 0, 3]*E*L+gcon_bl[..., 3, 3]*L*L
         vr /= gcon_bl[..., 1, 1]
         vr = - np.sqrt(np.maximum(0, -vr))
         bl_Ucov_isco[..., 0] = E
@@ -185,7 +185,8 @@ def ucon_bl_general_subkep(r, h, bhspin, subkep, beta_r, beta_phi):
     Omega = Omega_circ + (1. - beta_phi) * (Omega_ff - Omega_circ)
     bl_Ucon = np.zeros((*r.shape, 4))
     bl_Ucon[..., 0] = 1. + gcov_bl[..., 1, 1] * ur * ur
-    bl_Ucon[..., 0] /= gcov_bl[..., 0, 0] + 2. * Omega * gcov_bl[..., 0, 3] + gcov_bl[..., 3, 3] * Omega**2.
+    denom = gcov_bl[..., 0, 0] + 2*Omega*gcov_bl[..., 0, 3] + gcov_bl[..., 3, 3]*Omega**2
+    bl_Ucon[..., 0] /= denom
     bl_Ucon[..., 0] = np.sqrt(-bl_Ucon[..., 0])
     bl_Ucon[..., 1] = ur
     bl_Ucon[..., 3] = Omega * bl_Ucon[..., 0]
