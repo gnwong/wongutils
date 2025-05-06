@@ -31,7 +31,7 @@ def test_off_midplane():
             f"ucon_bl {r}: {ucon_bl} != {ucon}"
 
 
-def _test_input_sizes():
+def test_input_sizes():
     """Check if the function works with both scalars and arrays."""
     bhspin = 0.42
     subkep = 0.87
@@ -40,12 +40,18 @@ def _test_input_sizes():
     rvals = np.linspace(2., 12., 11)
     hvals = np.linspace(0.1, 2., 11)
     R, H = np.meshgrid(rvals, hvals, indexing='ij')
-    ucon_bl, _ = velocities.ucon_bl_general_subkep(R, H, bhspin, subkep, f_r, f_p)
-    print(ucon_bl)
+    ucon_bl, ucov_bl = velocities.ucon_bl_general_subkep(R, H, bhspin, subkep, f_r, f_p)
+    for ir, tr in enumerate(rvals):
+        for ih, th in enumerate(hvals):
+            ucon_bl_scalar, ucov_bl_scalar = velocities.ucon_bl_general_subkep(tr, th, bhspin, subkep, f_r, f_p)
+            assert np.allclose(ucon_bl[ir, ih], ucon_bl_scalar), \
+                f"ucon_bl {tr}, {th}: {ucon_bl[ir, ih]} != {ucon_bl_scalar}"
+            assert np.allclose(ucov_bl[ir, ih], ucov_bl_scalar), \
+                f"ucov_bl {tr}, {th}: {ucov_bl[ir, ih]} != {ucov_bl_scalar}"
 
 
 if __name__ == "__main__":
 
     test_midplane()
     test_off_midplane()
-    #test_input_sizes()
+    test_input_sizes()

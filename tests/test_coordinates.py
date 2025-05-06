@@ -152,7 +152,7 @@ def test_coordinate_transforms():
 
     # check ks -> eks and inverse
     x1_eks, x2_eks, x3_eks = coordinates.x_eks_from_ks(r_ks, h_ks, p_ks)
-    x_eks_truth = [x1_eks, x2_eks, x3_eks]
+    x_eks_truth = [np.log(r_ks), h_ks/np.pi, p_ks]
     assert np.allclose(x_eks_truth, [x1_eks, x2_eks, x3_eks]), \
         f"KS->EKS fail: {x_eks_truth} -> {x1_eks}, {x2_eks}, {x3_eks}"
     rp_ks, hp_ks, pp_ks = coordinates.x_ks_from_eks(x1_eks, x2_eks, x3_eks)

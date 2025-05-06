@@ -40,7 +40,7 @@ def _normalization(metric, v):
     """
     Get prefactor to normalize the four-velocity using the metric.
     """
-    norm = np.einsum('a,a->', np.einsum('ab,b->a', metric, v), v)
+    norm = np.einsum('...a,...a->...', np.einsum('...ab,...b->...a', metric, v), v)
     return np.sqrt(-1./norm)
 
 
@@ -51,26 +51,36 @@ def _set_subkep_bl_Ucon(r, h, bhspin, subkep):
     rescaled by the subkeplerian factor.
     """
 
+    was_scalar = False
+    if np.isscalar(r):
+        was_scalar = True
+        r = np.array([r]).reshape((1, 1))
+        h = np.array([h]).reshape((1, 1))
+
     # get Boyer-Lindquist metric
     gcov_bl = metrics.get_gcov_bl_from_bl(bhspin, r, h)
     gcon_bl = metrics.get_gcon_bl_from_bl(bhspin, r, h)
 
     # get BL Keplerian angular velocity (in BL coordinates)
     Omega_kep = 1. / (np.power(r, 1.5) + bhspin)
-    bl_Ucon = np.zeros(4)
-    bl_Ucon[0] = 1.
-    bl_Ucon[3] = Omega_kep
-    bl_Ucon *= _normalization(gcov_bl, bl_Ucon)
+    bl_Ucon = np.zeros((*r.shape, 4))
+    bl_Ucon[..., 0] = 1.
+    bl_Ucon[..., 3] = Omega_kep
+    bl_Ucon *= np.expand_dims(_normalization(gcov_bl, bl_Ucon), axis=-1)
 
     # get angular momentum for Keplerian orbit and rescale
-    bl_Ucov = np.einsum('ab,b->a', gcov_bl, bl_Ucon)
-    L = - bl_Ucov[3] / bl_Ucov[0] * subkep
-    bl_Ucov[0] = -1.
-    bl_Ucov[1] = 0.
-    bl_Ucov[2] = 0.
-    bl_Ucov[3] = L
-    bl_Ucov *= _normalization(gcon_bl, bl_Ucov)
-    bl_Ucon = np.einsum('ab,b->a', gcon_bl, bl_Ucov)
+    bl_Ucov = np.einsum('...ab,...b->...a', gcov_bl, bl_Ucon)
+    L = - bl_Ucov[..., 3] / bl_Ucov[..., 0] * subkep
+    bl_Ucov[..., 0] = -1.
+    bl_Ucov[..., 1] = 0.
+    bl_Ucov[..., 2] = 0.
+    bl_Ucov[..., 3] = L
+    bl_Ucov *= np.expand_dims(_normalization(gcon_bl, bl_Ucov), axis=-1)
+    bl_Ucon = np.einsum('...ab,...b->...a', gcon_bl, bl_Ucov)
+
+    if was_scalar:
+        bl_Ucon = bl_Ucon[0, 0]
+        bl_Ucov = bl_Ucov[0, 0]
 
     return bl_Ucon, bl_Ucov
 
@@ -81,6 +91,12 @@ def _bl_subkep_cunningham(r, h, bhspin, subkep):
     than cylindrical radius.
     """
 
+    was_scalar = False
+    if np.isscalar(r):
+        was_scalar = True
+        r = np.array([r]).reshape((1, 1))
+        h = np.array([h]).reshape((1, 1))
+
     # get Boyer-Lindquist metric
     gcon_bl = metrics.get_gcon_bl_from_bl(bhspin, r, h)
 
@@ -88,34 +104,47 @@ def _bl_subkep_cunningham(r, h, bhspin, subkep):
     reh = 1. + np.sqrt(1. - bhspin * bhspin)
     r_isco = _r_isco(bhspin)
 
-    if r < reh:
-        # set to normal observer within horizon
-        bl_Ucov = np.zeros(4)
-        bl_Ucov[0] = -1.
-        bl_Ucov[1] = 0.
-        bl_Ucov[2] = 0.
-        bl_Ucov[3] = 0.
-        bl_Ucov *= _normalization(gcon_bl, bl_Ucov)
-        bl_Ucon = np.einsum('ab,b->a', gcon_bl, bl_Ucov)
-    elif r < r_isco:
-        # keep same E, L as at ISCO
-        bl_Ucon, bl_Ucov = _set_subkep_bl_Ucon(r_isco, h, bhspin, subkep)
-        E = bl_Ucov[0]
-        L = bl_Ucov[3]
-        vr = 1. + gcon_bl[0, 0]*E*E + 2.*gcon_bl[0, 3]*E*L + gcon_bl[3, 3]*L*L
-        vr /= gcon_bl[1, 1]
-        vr = - np.sqrt(max(0, -vr))
-        bl_Ucov[0] = E
-        bl_Ucov[1] = vr
-        bl_Ucov[2] = 0.
-        bl_Ucov[3] = L
-        bl_Ucov *= _normalization(gcon_bl, bl_Ucov)
-        bl_Ucon = np.einsum('ab,b->a', gcon_bl, bl_Ucov)
-    else:
-        # do usual thing outside of ISCO
-        bl_Ucon, bl_Ucov = _set_subkep_bl_Ucon(r, h, bhspin, subkep)
+    # mask as needed
+    mask_eh = r < reh
+    mask_isco = r < r_isco
 
-    return bl_Ucon, bl_Ucov
+    # compute normal observer
+    bl_Ucov_normobs = np.zeros((*r.shape, 4))
+    if mask_eh.any():
+        bl_Ucov_normobs[..., 0] = -1.
+        bl_Ucov_normobs[..., 0] *= _normalization(gcon_bl, bl_Ucov_normobs)
+    bl_Ucon_normobs = np.einsum('...ab,...b->...a', gcon_bl, bl_Ucov_normobs)
+
+    # compute subkeplerian velocity within the ISCO
+    r_isco = np.ones_like(h) * r_isco
+    bl_Ucon_isco, bl_Ucov_isco = _set_subkep_bl_Ucon(r_isco, h, bhspin, subkep)
+    if mask_isco.any():
+        E = bl_Ucov_isco[..., 0]
+        L = bl_Ucov_isco[..., 3]
+        vr = 1. + gcon_bl[..., 0, 0] * E * E + 2. * gcon_bl[..., 0, 3] * E * L + gcon_bl[..., 3, 3] * L * L
+        vr /= gcon_bl[..., 1, 1]
+        vr = - np.sqrt(np.maximum(0, -vr))
+        bl_Ucov_isco[..., 0] = E
+        bl_Ucov_isco[..., 1] = vr
+        bl_Ucov_isco[..., 2] = 0.
+        bl_Ucov_isco[..., 3] = L
+        bl_Ucov_isco *= np.expand_dims(_normalization(gcon_bl, bl_Ucov_isco), axis=-1)
+        bl_Ucon_isco = np.einsum('...ab,...b->...a', gcon_bl, bl_Ucov_isco)
+
+    # compute subkeplerian velocity outside the ISCO
+    bl_Ucon_subkep, bl_Ucov_subkep = _set_subkep_bl_Ucon(r, h, bhspin, subkep)
+
+    bl_Ucon_subkep[mask_isco, :] = bl_Ucon_isco[mask_isco, :]
+    bl_Ucon_subkep[mask_eh, :] = bl_Ucon_normobs[mask_eh, :]
+
+    bl_Ucov_subkep[mask_isco, :] = bl_Ucov_isco[mask_isco, :]
+    bl_Ucov_subkep[mask_eh, :] = bl_Ucov_normobs[mask_eh, :]
+
+    if was_scalar:
+        bl_Ucon_subkep = bl_Ucon_subkep[0, 0]
+        bl_Ucov_subkep = bl_Ucov_subkep[0, 0]
+
+    return bl_Ucon_subkep, bl_Ucov_subkep
 
 
 def ucon_bl_general_subkep(r, h, bhspin, subkep, beta_r, beta_phi):
@@ -129,45 +158,41 @@ def ucon_bl_general_subkep(r, h, bhspin, subkep, beta_r, beta_phi):
     :arg subkep: subkeplerian factor (1 = keplerian)
     """
 
-    if False:
-        # broken kludge
-        input_was_scalar = False
-        if np.isscalar(r):
-            input_was_scalar = True
-            r = np.array([r]).reshape((1, 1))
-            h = np.array([h]).reshape((1, 1))
+    was_scalar = False
+    if np.isscalar(r):
+        was_scalar = True
+        r = np.array([r]).reshape((1, 1))
+        h = np.array([h]).reshape((1, 1))
 
     # get Boyer-Lindquist metric
     gcov_bl = metrics.get_gcov_bl_from_bl(bhspin, r, h)
     gcon_bl = metrics.get_gcon_bl_from_bl(bhspin, r, h)
 
     # get subkep velocity
-    bl_Ucon_subkep, bl_Ucov_subkep = _bl_subkep_cunningham(r, h, bhspin, subkep)
+    bl_Ucon_subkep, _ = _bl_subkep_cunningham(r, h, bhspin, subkep)
 
     # get freefall velocity
-    ur_ff = - np.sqrt((-1. - gcon_bl[..., 0, 0]) * gcon_bl[..., 1, 1])
-    bl_Ucon_ff = np.zeros(4)
+    bl_Ucon_ff = np.zeros((*r.shape, 4))
     bl_Ucon_ff[..., 0] = - gcon_bl[..., 0, 0]
-    bl_Ucon_ff[..., 1] = ur_ff
+    bl_Ucon_ff[..., 1] = - np.sqrt((-1. - gcon_bl[..., 0, 0]) * gcon_bl[..., 1, 1])
     bl_Ucon_ff[..., 2] = 0.
     bl_Ucon_ff[..., 3] = - gcon_bl[..., 0, 3]
 
-    # combine stuff
+    # combine velocity models
     ur = bl_Ucon_subkep[..., 1] + (1.-beta_r)*(bl_Ucon_ff[..., 1]-bl_Ucon_subkep[..., 1])
     Omega_circ = bl_Ucon_subkep[..., 3] / bl_Ucon_subkep[..., 0]
-    Omega_ff = bl_Ucon_ff[3] / bl_Ucon_ff[0]
+    Omega_ff = bl_Ucon_ff[..., 3] / bl_Ucon_ff[..., 0]
     Omega = Omega_circ + (1. - beta_phi) * (Omega_ff - Omega_circ)
-    bl_Ucon = np.zeros(4)
-    bl_Ucon[0] = 1. + gcov_bl[1, 1] * ur * ur
-    bl_Ucon[0] /= gcov_bl[0, 0] + 2. * Omega * gcov_bl[0, 3] + gcov_bl[3, 3] * Omega**2.
-    bl_Ucon[0] = np.sqrt(-bl_Ucon[0])
-    bl_Ucon[1] = ur
-    bl_Ucon[2] = 0.
-    bl_Ucon[3] = Omega * bl_Ucon[0]
-    bl_Ucov = np.einsum('ab,b->a', gcov_bl, bl_Ucon)
+    bl_Ucon = np.zeros((*r.shape, 4))
+    bl_Ucon[..., 0] = 1. + gcov_bl[..., 1, 1] * ur * ur
+    bl_Ucon[..., 0] /= gcov_bl[..., 0, 0] + 2. * Omega * gcov_bl[..., 0, 3] + gcov_bl[..., 3, 3] * Omega**2.
+    bl_Ucon[..., 0] = np.sqrt(-bl_Ucon[..., 0])
+    bl_Ucon[..., 1] = ur
+    bl_Ucon[..., 3] = Omega * bl_Ucon[..., 0]
+    bl_Ucov = np.einsum('...ab,...b->...a', gcov_bl, bl_Ucon)
 
-    # recast to scalar if appropriate
-    if False and input_was_scalar:
-        print(bl_Ucon.shape)
+    if was_scalar:
+        bl_Ucon = bl_Ucon[0, 0]
+        bl_Ucov = bl_Ucov[0, 0]
 
     return bl_Ucon, bl_Ucov
