@@ -147,7 +147,7 @@ def test_coordinate_transforms():
     """Regression and unit tests for coordinate transforms."""
 
     r_ks = 5.
-    h_ks = np.pi/0.8
+    h_ks = np.pi/1.2
     p_ks = 0.3
 
     # check ks -> eks and inverse
@@ -158,6 +158,26 @@ def test_coordinate_transforms():
     rp_ks, hp_ks, pp_ks = coordinates.x_ks_from_eks(x1_eks, x2_eks, x3_eks)
     assert np.allclose([r_ks, h_ks, p_ks], [rp_ks, hp_ks, pp_ks]), \
         f"EKS->KS fail: {r_ks}, {h_ks}, {p_ks} -> {rp_ks}, {hp_ks}, {pp_ks}"
+
+    # check ks -> cks and inverse
+    x_cks, y_cks, z_cks = coordinates.x_cks_from_ks(dict(bhspin=0.), r_ks, h_ks, p_ks)
+    assert np.allclose([x_cks, y_cks, z_cks], [2.38834122, 0.73880052, -4.33012702]), \
+        f"KS->CKS fail: {x_cks}, {y_cks}, {z_cks} != 2.388341, 0.7388005, -4.330127"
+    rp_ks, hp_ks, pp_ks = coordinates.x_ks_from_cks(dict(bhspin=0.), x_cks, y_cks, z_cks)
+    assert np.allclose([r_ks, h_ks, p_ks], [rp_ks, hp_ks, pp_ks]), \
+        f"CKS->KS fail: {r_ks}, {h_ks}, {p_ks} -> {rp_ks}, {hp_ks}, {pp_ks}"
+    # now check handedness (increasing phi goes counter-clockwise)
+    rs = np.ones(3) * 5.
+    hs = np.ones(3) * np.pi/2.
+    ps = np.array([0., np.pi/2., np.pi])
+    x_cks, y_cks, z_cks = coordinates.x_cks_from_ks(dict(bhspin=0.), rs, hs, ps)
+    x_cks_truth = np.array([5., 0., -5])
+    y_cks_truth = np.array([0., 5., 0.])
+    z_cks_truth = np.array([0., 0., 0.])
+    P_cks = np.array([x_cks, y_cks, z_cks])
+    P_cks_truth = np.array([x_cks_truth, y_cks_truth, z_cks_truth])
+    assert np.allclose(P_cks, P_cks_truth), \
+        f"CKS->KS fail (handedness): {P_cks} != {P_cks_truth}"
 
     # check fmks -> ks
     coord_info = {
@@ -178,8 +198,6 @@ def test_coordinate_transforms():
     r_ks, h_ks, p_ks = coordinates.x_ks_from_fmks(coord_info, x1_fmks, x2_fmks, x3_fmks)
     assert np.allclose([r_ks, h_ks, p_ks], [1.488590865, 0.7666458987, 0.4417864669]), \
         f"FMKS->KS fail: {r_ks}, {h_ks}, {p_ks} != 1.488591, 0.7666459, 0.4417865"
-
-    # TODO: cks tests
 
 
 def test_dxdx_metrics():

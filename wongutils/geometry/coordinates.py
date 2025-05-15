@@ -46,8 +46,6 @@ get_dxdX_[Coordinates A]_[Coordinates B]_from_[Coordinates C]:
     dxdX_CB = get_dxdX_...(xcon_A)
     vcon_A = np.einsum('...ij,...j->...i', dxdX_CB, vcon_B)
 
-    ## TODO BOGUE CHECK!
-
 """
 
 
@@ -60,8 +58,23 @@ def x_ks_from_cks(coordinate_info, x, y, z):
                 + np.sqrt(np.power(np.power(R, 2.) - bhspin*bhspin, 2.)
                           + 4.*bhspin*bhspin * np.power(z, 2.))) / np.sqrt(2.)
     h = np.arccos(z / r)
-    p = np.arctan2(bhspin*x - r*y, bhspin*y + r*x)
+    p = np.arctan2(r * y - bhspin * x, r * x + bhspin * y)
+    if np.isscalar(p):
+        if p < 0:
+            p += 2. * np.pi
+    else:
+        p[p < 0] += 2. * np.pi
     return r, h, p
+
+
+def x_cks_from_ks(coordinate_info, r, h, p):
+    """Translate r, h, p from KS to CKS given 'coordinate_info'
+    dictionary containing 'bhspin'. Works for arbitrary shapes."""
+    bhspin = coordinate_info['bhspin']
+    x = r * np.cos(p) * np.sin(h) - bhspin * np.sin(p) * np.sin(h)
+    y = r * np.sin(p) * np.sin(h) + bhspin * np.cos(p) * np.sin(h)
+    z = r * np.cos(h)
+    return x, y, z
 
 
 def x_ks_from_eks(x1, x2, x3):
