@@ -36,6 +36,8 @@ class AthenaKSnapshot:
         :arg verbose: (default=False) whether to print informational messages
         """
 
+        self.fname = fname
+
         if fname.endswith('.bin'):
             self.data = self._load_binary(fname)
 
@@ -43,6 +45,16 @@ class AthenaKSnapshot:
 
         if populate_ghostzones:
             self.data = self._populate_ghostzones(verbose=verbose)
+
+    def __repr__(self):
+        """
+        Return a string representation of the AthenaKSnapshot object.
+        """
+
+        # <AthenaKSnapshot: time=12.5, cycle=1200, meshblocks=128, vars=8>
+        return f"<AthenaKSnapshot: fname={self.fname}, time={self.data['time']}, " \
+               f"cycle={self.data['cycle']}, meshblocks={self.data['n_mbs']}, " \
+               f"vars={self.nvars}>"
 
     def get_primitives_at(self, X, Y, Z):
         """
@@ -251,7 +263,7 @@ class AthenaKSnapshot:
         data[:, 1:-1, 1:-1, 1:-1, 7] = np.array(self.data['mb_data']['bcc3'])
         self.prims = data.transpose((0, 3, 2, 1, 4))
 
-        mb_geometry = self.data['mb_geometry']
+        self.mb_geometry = self.data['mb_geometry']
         self.mb_levels = self.data['mb_logical'][:, 3]
 
         nx1 = self.data['nx1_mb']
@@ -271,54 +283,50 @@ class AthenaKSnapshot:
                 f"{nx1}, {nx2}, {nx3}"
             )
 
-        self.meshblocks = Meshblocks(mb_geometry, self.mb_levels, nx1, nx2, nx3)
+        self.meshblocks = Meshblocks(self.mb_geometry, self.mb_levels, nx1, nx2, nx3)
+
+    def _populate_ghostzones_meshblock(self, mbi):
+
+        nx1 = self.data['nx1_mb']
+        nx2 = self.data['nx2_mb']
+        nx3 = self.data['nx3_mb']
+        geometry = self.mb_geometry[mbi]
+
+        _, x1v = self.meshblocks._get_edges_and_verts(geometry[0], geometry[1], nx1)
+        _, x2v = self.meshblocks._get_edges_and_verts(geometry[2], geometry[3], nx2)
+        _, x3v = self.meshblocks._get_edges_and_verts(geometry[4], geometry[5], nx3)
+        x1, x2, x3 = np.meshgrid(x1v, x2v, x3v, indexing='ij')
+
+        face_indices = [(0, 0), (0, -1), (1, 0), (1, -1), (2, 0), (2, -1)]
+
+        failures = 0
+
+        for axis, idx in face_indices:
+
+            slicer = [slice(None)] * 3
+            slicer[axis] = idx
+            face_slice = tuple(slicer)
+
+            # get positions, interpolate, and fill
+            positions = np.column_stack((x1[face_slice].ravel(),
+                                         x2[face_slice].ravel(),
+                                         x3[face_slice].ravel()))
+            intrp = self.meshblocks.interpolate_data_at(self.prims, positions)
+            if intrp is None:
+                failures += 1
+                continue
+            intrp = intrp.reshape(self.prims[mbi][face_slice].shape)
+            mask = np.isfinite(intrp)
+            failures += np.sum(~mask)
+            self.prims[mbi][face_slice][mask] = intrp[mask]
+
+        return failures
 
     def _populate_ghostzones(self, verbose=False):
 
         data = self.prims
 
-        mb_geometry = self.data['mb_geometry']
-        mb_levels = self.mb_levels
-
-        nx1 = self.data['nx1_mb']
-        nx2 = self.data['nx2_mb']
-        nx3 = self.data['nx3_mb']
-
-        # perform sweep in two passes based on level constraints
-        blocks_to_redo = []
-
-        for mbi in tqdm(np.argsort(mb_levels)):
-
-            geometry = mb_geometry[mbi]
-            _, x1v = self.meshblocks._get_edges_and_verts(geometry[0], geometry[1], nx1)
-            _, x2v = self.meshblocks._get_edges_and_verts(geometry[2], geometry[3], nx2)
-            _, x3v = self.meshblocks._get_edges_and_verts(geometry[4], geometry[5], nx3)
-            x1, x2, x3 = np.meshgrid(x1v, x2v, x3v, indexing='ij')
-
-            face_indices = [(0, 0), (0, -1), (1, 0), (1, -1), (2, 0), (2, -1)]
-
-            failures = 0
-
-            for axis, idx in face_indices:
-
-                slicer = [slice(None)] * 3
-                slicer[axis] = idx
-                face_slice = tuple(slicer)
-
-                # get positions, interpolate, and fill
-                positions = np.column_stack((x1[face_slice].ravel(),
-                                             x2[face_slice].ravel(),
-                                             x3[face_slice].ravel()))
-                intrp = self.meshblocks.interpolate_data_at(data, positions)
-                if intrp is None:
-                    failures += 1
-                    continue
-                intrp = intrp.reshape(data[mbi][face_slice].shape)
-                mask = np.isfinite(intrp)
-                failures += np.sum(~mask)
-                data[mbi][face_slice][mask] = intrp[mask]
-
-            if failures > 0:
-                blocks_to_redo.append(mbi)
+        for mbi in tqdm(np.argsort(self.mb_levels)):
+            self._populate_ghostzones_meshblock(mbi)
 
         self.prims = data
