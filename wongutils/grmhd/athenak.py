@@ -252,7 +252,7 @@ class AthenaKSnapshot:
         self.prims = data.transpose((0, 3, 2, 1, 4))
 
         mb_geometry = self.data['mb_geometry']
-        mb_levels = self.data['mb_logical'][:, 3]
+        self.mb_levels = self.data['mb_logical'][:, 3]
 
         nx1 = self.data['nx1_mb']
         nx2 = self.data['nx2_mb']
@@ -271,17 +271,14 @@ class AthenaKSnapshot:
                 f"{nx1}, {nx2}, {nx3}"
             )
 
-        self.meshblocks = Meshblocks(mb_geometry, mb_levels, nx1, nx2, nx3)
+        self.meshblocks = Meshblocks(mb_geometry, self.mb_levels, nx1, nx2, nx3)
 
     def _populate_ghostzones(self, verbose=False):
-
-        if verbose:
-            print("Populating ghost zones...")
 
         data = self.prims
 
         mb_geometry = self.data['mb_geometry']
-        mb_levels = self.data['mb_logical'][:, 3]
+        mb_levels = self.mb_levels
 
         nx1 = self.data['nx1_mb']
         nx2 = self.data['nx2_mb']
@@ -290,12 +287,7 @@ class AthenaKSnapshot:
         # perform sweep in two passes based on level constraints
         blocks_to_redo = []
 
-        if verbose:
-            print(" - running pass 1 of 2")
-
-        for mbi in tqdm(range(self.data['n_mbs'])):
-
-            mb_level = mb_levels[mbi]
+        for mbi in tqdm(np.argsort(mb_levels)):
 
             geometry = mb_geometry[mbi]
             _, x1v = self.meshblocks._get_edges_and_verts(geometry[0], geometry[1], nx1)
@@ -317,9 +309,7 @@ class AthenaKSnapshot:
                 positions = np.column_stack((x1[face_slice].ravel(),
                                              x2[face_slice].ravel(),
                                              x3[face_slice].ravel()))
-                intrp = self.meshblocks.interpolate_data_at(data, positions,
-                                                            levels_condition='gtreq',
-                                                            comparison_level=mb_level)
+                intrp = self.meshblocks.interpolate_data_at(data, positions)
                 if intrp is None:
                     failures += 1
                     continue
@@ -330,40 +320,5 @@ class AthenaKSnapshot:
 
             if failures > 0:
                 blocks_to_redo.append(mbi)
-
-        if verbose:
-            print(" - running pass 2 of 2")
-
-        for mbi in tqdm(blocks_to_redo):
-
-            mb_level = mb_levels[mbi]
-
-            geometry = mb_geometry[mbi]
-            _, x1v = self.meshblocks._get_edges_and_verts(geometry[0], geometry[1], nx1)
-            _, x2v = self.meshblocks._get_edges_and_verts(geometry[2], geometry[3], nx2)
-            _, x3v = self.meshblocks._get_edges_and_verts(geometry[4], geometry[5], nx3)
-            x1, x2, x3 = np.meshgrid(x1v, x2v, x3v, indexing='ij')
-
-            face_indices = [(0, 0), (0, -1), (1, 0), (1, -1), (2, 0), (2, -1)]
-
-            for axis, idx in face_indices:
-
-                slicer = [slice(None)] * 3
-                slicer[axis] = idx
-                face_slice = tuple(slicer)
-
-                # get positions, interpolate, and fill
-                positions = np.column_stack((x1[face_slice].ravel(),
-                                             x2[face_slice].ravel(),
-                                             x3[face_slice].ravel()))
-                intrp = self.meshblocks.interpolate_data_at(data, positions,
-                                                            levels_condition='lt',
-                                                            comparison_level=mb_level)
-                if intrp is None:
-                    continue
-                intrp = intrp.reshape(data[mbi][face_slice].shape)
-                mask = np.isfinite(intrp)
-                failures += np.sum(~mask)
-                data[mbi][face_slice][mask] = intrp[mask]
 
         self.prims = data
