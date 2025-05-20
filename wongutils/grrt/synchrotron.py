@@ -31,7 +31,7 @@ def jnu_synch(nu, Ne, Thetae, B, theta):
 
     if Thetae < THETAE_MIN:
         return 0.
-    
+
     K2 = kv(2, 1./Thetae)
 
     nuc = EE * B / (2. * np.pi * ME * CL)
@@ -64,7 +64,7 @@ def Jnu_synch(nu, Ne, Thetae, B):
 
     :returns: frequency-integrated synchrotron emissivity in erg s^-1 cm^-3.
     """
-    return quad(lambda theta: jnu_synch(nu, Ne, Thetae, B, theta)*np.sin(theta), 0, np.pi)[0]
+    return quad(lambda th: jnu_synch(nu, Ne, Thetae, B, th)*np.sin(th), 0, np.pi)[0]
 
 
 def __tests__():

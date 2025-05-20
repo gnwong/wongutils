@@ -20,6 +20,7 @@ THE SOFTWARE.
 """
 
 import numpy as np
+from tqdm import tqdm
 
 from wongutils.grmhd.meshblocks import Meshblocks
 
@@ -198,32 +199,57 @@ class AthenaKSnapshot:
 
         return filedata
 
-    def _populate_ghostzones(self):
+    def _populate_ghostzones(self, verbose=False):
 
-        from tqdm import tqdm  # TODO: remove?
+        if verbose:
+            print("Populating ghost zones...")
+
+        # ['dens', 'velx', 'vely', 'velz', 'eint', 'bcc1', 'bcc2', 'bcc3'])
+        # by convention, athenak uses particular names for the
+        # primitive variables. we'll check for those as we try
+        # to construct the primtiive array, which will we make
+        # of shape (nmb, n3_mb, n2_mb, n1_mb, nvars)
+
+        nvars = 8
+        dens = np.array(self.data['mb_data']['dens'])
+        nmb, nz, ny, nx = dens.shape
+        data = np.zeros((nmb, nz+2, ny+2, nx+2, nvars), dtype=dens.dtype)
+        data[:, 1:-1, 1:-1, 1:-1, 0] = dens
+        data[:, 1:-1, 1:-1, 1:-1, 1] = np.array(self.data['mb_data']['eint'])
+        data[:, 1:-1, 1:-1, 1:-1, 2] = np.array(self.data['mb_data']['velx'])
+        data[:, 1:-1, 1:-1, 1:-1, 3] = np.array(self.data['mb_data']['vely'])
+        data[:, 1:-1, 1:-1, 1:-1, 4] = np.array(self.data['mb_data']['velz'])
+        data[:, 1:-1, 1:-1, 1:-1, 5] = np.array(self.data['mb_data']['bcc1'])
+        data[:, 1:-1, 1:-1, 1:-1, 6] = np.array(self.data['mb_data']['bcc2'])
+        data[:, 1:-1, 1:-1, 1:-1, 7] = np.array(self.data['mb_data']['bcc3'])
+        data = data.transpose((0, 3, 2, 1, 4))
 
         mb_geometry = self.data['mb_geometry']
         mb_levels = self.data['mb_logical'][:, 3]
 
-        # TODO: deal with different datasets
-        indata = np.array(self.data['mb_data']['dens'])
-        nmb, nz, ny, nx = indata.shape
-
-        # fill centers of data
-        data = np.zeros((nmb, nz+2, ny+2, nx+2), dtype=indata.dtype)
-        data[:, 1:-1, 1:-1, 1:-1] = indata
-        data = data.transpose((0, 3, 2, 1))
-
-        # TODO: check out size
         nx1 = self.data['nx1_mb']
         nx2 = self.data['nx2_mb']
         nx3 = self.data['nx3_mb']
+
+        # this code triggers when the data in the snapshot file has output
+        # meshblocks that are not the expected size. this could happen if,
+        # for example, the snapshot file already includes ghost zones.
+        # this behavior is currently unsupported.
+        if self.data['nx1_out_mb'] != nx1 or \
+           self.data['nx2_out_mb'] != nx2 or \
+           self.data['nx3_out_mb'] != nx3:
+            raise ValueError(
+                f"Mismatch in meshblock sizes: {self.data['nx1_out_mb']}, "
+                f"{self.data['nx2_out_mb']}, {self.data['nx3_out_mb']} vs "
+                f"{nx1}, {nx2}, {nx3}"
+            )
 
         self.meshblocks = Meshblocks(mb_geometry, mb_levels, nx1, nx2, nx3)
 
         # perform sweep in two passes based on level constraints
         blocks_to_redo = []
 
+        print(" - running pass 1 of 2")
         for mbi in tqdm(range(self.data['n_mbs'])):
 
             mb_level = mb_levels[mbi]
@@ -254,13 +280,47 @@ class AthenaKSnapshot:
                 if intrp is None:
                     failures += 1
                     continue
-                intrp = intrp.reshape(x1[face_slice].shape)
+                intrp = intrp.reshape(data[mbi][face_slice].shape)
                 mask = np.isfinite(intrp)
                 failures += np.sum(~mask)
-
                 data[mbi][face_slice][mask] = intrp[mask]
 
             if failures > 0:
                 blocks_to_redo.append(mbi)
+
+        print(blocks_to_redo)
+
+        print(" - running pass 2 of 2")
+        for mbi in tqdm(blocks_to_redo):
+
+            mb_level = mb_levels[mbi]
+
+            geometry = mb_geometry[mbi]
+            _, x1v = self.meshblocks._get_edges_and_verts(geometry[0], geometry[1], nx1)
+            _, x2v = self.meshblocks._get_edges_and_verts(geometry[2], geometry[3], nx2)
+            _, x3v = self.meshblocks._get_edges_and_verts(geometry[4], geometry[5], nx3)
+            x1, x2, x3 = np.meshgrid(x1v, x2v, x3v, indexing='ij')
+
+            face_indices = [(0, 0), (0, -1), (1, 0), (1, -1), (2, 0), (2, -1)]
+
+            for axis, idx in face_indices:
+
+                slicer = [slice(None)] * 3
+                slicer[axis] = idx
+                face_slice = tuple(slicer)
+
+                # get positions, interpolate, and fill
+                positions = np.column_stack((x1[face_slice].ravel(),
+                                             x2[face_slice].ravel(),
+                                             x3[face_slice].ravel()))
+                intrp = self.meshblocks.interpolate_data_at(data, positions,
+                                                            levels_condition='lt',
+                                                            comparison_level=mb_level)
+                if intrp is None:
+                    continue
+                intrp = intrp.reshape(data[mbi][face_slice].shape)
+                mask = np.isfinite(intrp)
+                failures += np.sum(~mask)
+                data[mbi][face_slice][mask] = intrp[mask]
 
         return data

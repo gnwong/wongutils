@@ -68,7 +68,9 @@ class Meshblocks:
             x = ii[:, 0] + 1
             y = ii[:, 1] + 1
             z = ii[:, 2] + 1
-            dx, dy, dz = dd[:, 0], dd[:, 1], dd[:, 2]
+            dx = dd[:, 0][..., None]
+            dy = dd[:, 1][..., None]
+            dz = dd[:, 2][..., None]
 
             def get(dx_, dy_, dz_):
                 return d[mesh_ids, x + dx_, y + dy_, z + dz_]
@@ -126,7 +128,10 @@ class Meshblocks:
 
         # interpolate, refill, and return
         interpd = trilinear_interpolate(data, block_ids_valid, ii, dd)
-        data = np.full(positions.shape[:-1], np.nan)
+        if interpd.ndim == 1:
+            data = np.full(positions.shape[0], np.nan)
+        else:
+            data = np.full((positions.shape[0], interpd.shape[1]), np.nan)
         data[valid_mask] = interpd
 
         return data
