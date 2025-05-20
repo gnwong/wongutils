@@ -27,15 +27,45 @@ from wongutils.grmhd.meshblocks import Meshblocks
 
 class AthenaKSnapshot:
 
-    def __init__(self, fname):
+    def __init__(self, fname, populate_ghostzones=True, verbose=False):
         """
         Load Athena++ snapshot file and return data in a dictionary.
 
         :arg fname: filename of snapshot file to load
+        :arg populate_ghostzones: (default=True) whether to populate ghost zones
+        :arg verbose: (default=False) whether to print informational messages
         """
 
         if fname.endswith('.bin'):
             self.data = self._load_binary(fname)
+
+        self._initialize_data(verbose=verbose)
+
+        if populate_ghostzones:
+            self.data = self._populate_ghostzones(verbose=verbose)
+
+    def get_primitives_at(self, X, Y, Z):
+        """
+        Get primitive variables at the specified coordinates.
+
+        :arg X: x1 coordinates
+        :arg Y: x2 coordinates
+        :arg Z: x3 coordinates
+
+        :returns: primitive variables at the specified coordinates
+        """
+
+        nx, ny, nz = X.shape
+
+        positions = np.column_stack((X.ravel(), Y.ravel(), Z.ravel()))
+        interpolated = self.meshblocks.interpolate_data_at(self.prims, positions)
+
+        if interpolated is None:
+            print('No data found at the specified coordinates.')
+            return np.full((nx, ny, nz, self.nvars), np.nan)
+
+        # reshape the interpolated data to match the input shape
+        return interpolated.reshape((nx, ny, nz, self.nvars))
 
     def _load_binary(self, filename):
         """
@@ -199,10 +229,7 @@ class AthenaKSnapshot:
 
         return filedata
 
-    def _populate_ghostzones(self, verbose=False):
-
-        if verbose:
-            print("Populating ghost zones...")
+    def _initialize_data(self, verbose=False):
 
         # ['dens', 'velx', 'vely', 'velz', 'eint', 'bcc1', 'bcc2', 'bcc3'])
         # by convention, athenak uses particular names for the
@@ -210,10 +237,10 @@ class AthenaKSnapshot:
         # to construct the primtiive array, which will we make
         # of shape (nmb, n3_mb, n2_mb, n1_mb, nvars)
 
-        nvars = 8
+        self.nvars = 8
         dens = np.array(self.data['mb_data']['dens'])
         nmb, nz, ny, nx = dens.shape
-        data = np.zeros((nmb, nz+2, ny+2, nx+2, nvars), dtype=dens.dtype)
+        data = np.zeros((nmb, nz+2, ny+2, nx+2, self.nvars), dtype=dens.dtype)
         data[:, 1:-1, 1:-1, 1:-1, 0] = dens
         data[:, 1:-1, 1:-1, 1:-1, 1] = np.array(self.data['mb_data']['eint'])
         data[:, 1:-1, 1:-1, 1:-1, 2] = np.array(self.data['mb_data']['velx'])
@@ -222,7 +249,7 @@ class AthenaKSnapshot:
         data[:, 1:-1, 1:-1, 1:-1, 5] = np.array(self.data['mb_data']['bcc1'])
         data[:, 1:-1, 1:-1, 1:-1, 6] = np.array(self.data['mb_data']['bcc2'])
         data[:, 1:-1, 1:-1, 1:-1, 7] = np.array(self.data['mb_data']['bcc3'])
-        data = data.transpose((0, 3, 2, 1, 4))
+        self.prims = data.transpose((0, 3, 2, 1, 4))
 
         mb_geometry = self.data['mb_geometry']
         mb_levels = self.data['mb_logical'][:, 3]
@@ -246,10 +273,26 @@ class AthenaKSnapshot:
 
         self.meshblocks = Meshblocks(mb_geometry, mb_levels, nx1, nx2, nx3)
 
+    def _populate_ghostzones(self, verbose=False):
+
+        if verbose:
+            print("Populating ghost zones...")
+
+        data = self.prims
+
+        mb_geometry = self.data['mb_geometry']
+        mb_levels = self.data['mb_logical'][:, 3]
+
+        nx1 = self.data['nx1_mb']
+        nx2 = self.data['nx2_mb']
+        nx3 = self.data['nx3_mb']
+
         # perform sweep in two passes based on level constraints
         blocks_to_redo = []
 
-        print(" - running pass 1 of 2")
+        if verbose:
+            print(" - running pass 1 of 2")
+
         for mbi in tqdm(range(self.data['n_mbs'])):
 
             mb_level = mb_levels[mbi]
@@ -288,9 +331,9 @@ class AthenaKSnapshot:
             if failures > 0:
                 blocks_to_redo.append(mbi)
 
-        print(blocks_to_redo)
+        if verbose:
+            print(" - running pass 2 of 2")
 
-        print(" - running pass 2 of 2")
         for mbi in tqdm(blocks_to_redo):
 
             mb_level = mb_levels[mbi]
@@ -323,4 +366,4 @@ class AthenaKSnapshot:
                 failures += np.sum(~mask)
                 data[mbi][face_slice][mask] = intrp[mask]
 
-        return data
+        self.prims = data

@@ -102,14 +102,14 @@ class Meshblocks:
         is_valid = np.not_equal(block_ids, None)
 
         # mask meshblocks that have lower level
-        valid_block_ids = block_ids[is_valid].astype(int)
-        if 'gtreq' in levels_condition:
-            level_ok = self.mb_levels[valid_block_ids] >= comparison_level
+        if levels_condition is None:
+            level_ok = np.ones_like(block_ids[is_valid].astype(int), dtype=bool)
+        elif 'gtreq' in levels_condition:
+            level_ok = self.mb_levels[block_ids[is_valid].astype(int)] >= comparison_level
         elif 'lt' in levels_condition:
-            level_ok = self.mb_levels[valid_block_ids] < comparison_level
+            level_ok = self.mb_levels[block_ids[is_valid].astype(int)] < comparison_level
         else:
-            # TODO deal with level_ok definition
-            pass
+            raise ValueError("Unknown levels_condition: {}".format(levels_condition))
 
         # combine mask
         valid_mask = np.zeros_like(block_ids, dtype=bool)
@@ -117,7 +117,7 @@ class Meshblocks:
 
         # skip work if no valid points
         if not np.any(valid_mask):
-            return None  # TODO
+            return None
 
         # get indices and offsets
         block_ids_valid = block_ids[valid_mask].astype(int)
