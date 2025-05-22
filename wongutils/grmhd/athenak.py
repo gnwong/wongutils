@@ -41,10 +41,11 @@ class AthenaKSnapshot:
         if fname.endswith('.bin'):
             self.data = self._load_binary(fname)
 
+        self.header = self._parse_header(self.data['header'])
         self._initialize_data(verbose=verbose)
 
         if populate_ghostzones:
-            self.data = self._populate_ghostzones(verbose=verbose)
+            self._populate_ghostzones(verbose=verbose)
 
     def __repr__(self):
         """
@@ -81,7 +82,7 @@ class AthenaKSnapshot:
 
     def _load_binary(self, filename):
         """
-        Load Athena++ binary file and return data in a dictionary.
+        Load AthenaK binary file and return data in a dictionary.
 
         :arg filename: filename of binary file to load
 
@@ -240,6 +241,36 @@ class AthenaKSnapshot:
         filedata["mb_data"] = mb_data
 
         return filedata
+
+    def _parse_header(self, header):
+        """Parse the header of a AthenaK snapshot file."""
+        header_dict = dict()
+        group = None
+        for line in [ln.strip() for ln in header]:
+            if line.startswith("#"):
+                continue
+            if line.startswith("<"):
+                group = line[1:-1]
+                if group not in header:
+                    header_dict[group] = {}
+                continue
+            if group is None:
+                continue
+            ltoks = line.split('=')
+            if len(ltoks) != 2:
+                print("Unable to parse header line:", line)
+                continue
+            value = ltoks[1].strip()
+            # try to turn into integer or float
+            try:
+                value = int(value)
+            except ValueError:
+                try:
+                    value = float(value)
+                except ValueError:
+                    pass
+            header_dict[group][ltoks[0].strip()] = value
+        return header_dict
 
     def _initialize_data(self, verbose=False):
 
