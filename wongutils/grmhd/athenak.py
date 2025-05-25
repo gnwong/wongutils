@@ -326,30 +326,57 @@ class AthenaKSnapshot:
         _, x1v = self.meshblocks._get_edges_and_verts(geometry[0], geometry[1], nx1)
         _, x2v = self.meshblocks._get_edges_and_verts(geometry[2], geometry[3], nx2)
         _, x3v = self.meshblocks._get_edges_and_verts(geometry[4], geometry[5], nx3)
-        x1, x2, x3 = np.meshgrid(x1v, x2v, x3v, indexing='ij')
 
         face_indices = [(0, 0), (0, -1), (1, 0), (1, -1), (2, 0), (2, -1)]
-
-        failures = 0
+        all_positions = []
+        face_infos = []
 
         for axis, idx in face_indices:
+            if axis == 0:
+                x2g, x3g = np.meshgrid(x2v, x3v, indexing='ij')
+                x1g = np.full_like(x2g, x1v[idx])
+                positions = np.column_stack((x1g.ravel(), x2g.ravel(), x3g.ravel()))
+                shape = x1g.shape
+            elif axis == 1:
+                x1g, x3g = np.meshgrid(x1v, x3v, indexing='ij')
+                x2g = np.full_like(x1g, x2v[idx])
+                positions = np.column_stack((x1g.ravel(), x2g.ravel(), x3g.ravel()))
+                shape = x1g.shape
+            elif axis == 2:
+                x1g, x2g = np.meshgrid(x1v, x2v, indexing='ij')
+                x3g = np.full_like(x1g, x3v[idx])
+                positions = np.column_stack((x1g.ravel(), x2g.ravel(), x3g.ravel()))
+                shape = x1g.shape
+
+            all_positions.append(positions)
+            face_infos.append((axis, idx, shape, positions.shape[0]))
+
+        all_positions = np.vstack(all_positions)
+        interpolated = self.meshblocks.interpolate_data_at(self.prims, all_positions)
+
+        failures = 0
+        if interpolated is None:
+            return len(face_infos)
+
+        cursor = 0
+        for axis, idx, shape, count in face_infos:
+            face_data = interpolated[cursor:cursor + count]
+            cursor += count
+
+            if face_data.ndim == 1:
+                face_data = face_data.reshape(shape)
+            else:
+                face_data = face_data.reshape(shape + (face_data.shape[1],))
 
             slicer = [slice(None)] * 3
             slicer[axis] = idx
             face_slice = tuple(slicer)
 
-            # get positions, interpolate, and fill
-            positions = np.column_stack((x1[face_slice].ravel(),
-                                         x2[face_slice].ravel(),
-                                         x3[face_slice].ravel()))
-            intrp = self.meshblocks.interpolate_data_at(self.prims, positions)
-            if intrp is None:
-                failures += 1
-                continue
-            intrp = intrp.reshape(self.prims[mbi][face_slice].shape)
-            mask = np.isfinite(intrp)
-            failures += np.sum(~mask)
-            self.prims[mbi][face_slice][mask] = intrp[mask]
+            target = self.prims[mbi][face_slice]
+            mask = np.isfinite(face_data)
+            failures += np.count_nonzero(~mask)
+            target[mask] = face_data[mask]
+            self.prims[mbi][face_slice] = target
 
         return failures
 
