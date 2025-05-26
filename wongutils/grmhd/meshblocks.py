@@ -99,7 +99,7 @@ class Meshblocks:
         block_ids = np.array(self.find_blocks(positions))
 
         # mask invalid blocks
-        is_valid = np.not_equal(block_ids, None)
+        is_valid = np.not_equal(block_ids, -1)
 
         # mask meshblocks that have lower level
         if levels_condition is None:
@@ -200,7 +200,8 @@ class BVHNode:
 
     def find_blocks_batch(self, points):
         points = np.asarray(points)
-        results = [None] * len(points)
+        results = np.full((points.shape[0],), -1, dtype=int)
+
         inside = self.bounds.contains_batch(points)
         if not np.any(inside):
             return results
@@ -216,12 +217,11 @@ class BVHNode:
                         break
         else:
             left_results = self.left.find_blocks_batch(subpoints)
-            right_results = self.right.find_blocks_batch(subpoints)
-            for i, r in zip(idxs, left_results):
-                if r is not None:
-                    results[i] = r
-            for i, r in zip(idxs, right_results):
-                if r is not None:
-                    results[i] = r
+            mask = (left_results != -1)
+            results[idxs[mask]] = left_results[mask]
 
-        return results
+            right_results = self.right.find_blocks_batch(subpoints)
+            mask = (right_results != -1)
+            results[idxs[mask]] = right_results[mask]
+
+        return np.array(results)
