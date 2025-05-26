@@ -55,45 +55,42 @@ class Meshblocks:
         verts = np.linspace(start - dx / 2, end + dx / 2, n + 2)
         return edges, verts
 
+    # helper function for trilinear interpolation
+    def _trilinear_interpolate(self, d, mesh_ids, ii, dd):
+        """
+        Assumes ii is in the range [0, nx-1] for each axis (i.e., autocorrects
+        for ghost zones).
+        """
+        x = ii[:, 0] + 1
+        y = ii[:, 1] + 1
+        z = ii[:, 2] + 1
+        dx = dd[:, 0][..., None]
+        dy = dd[:, 1][..., None]
+        dz = dd[:, 2][..., None]
+
+        c000 = d[mesh_ids, x, y, z]
+        c100 = d[mesh_ids, x + 1, y, z]
+        c010 = d[mesh_ids, x, y + 1, z]
+        c110 = d[mesh_ids, x + 1, y + 1, z]
+        c001 = d[mesh_ids, x, y, z + 1]
+        c101 = d[mesh_ids, x + 1, y, z + 1]
+        c011 = d[mesh_ids, x, y + 1, z + 1]
+        c111 = d[mesh_ids, x + 1, y + 1, z + 1]
+
+        return (
+            c000 * (1 - dx) * (1 - dy) * (1 - dz)
+            + c100 * dx * (1 - dy) * (1 - dz)
+            + c010 * (1 - dx) * dy * (1 - dz)
+            + c110 * dx * dy * (1 - dz)
+            + c001 * (1 - dx) * (1 - dy) * dz
+            + c101 * dx * (1 - dy) * dz
+            + c011 * (1 - dx) * dy * dz
+            + c111 * dx * dy * dz
+        )
+
     # helper function to interpolate data at a set of positions
     def interpolate_data_at(self, data, positions, levels_condition=None,
                             comparison_level=None):
-
-        # helper function for trilinear interpolation
-        def trilinear_interpolate(d, mesh_ids, ii, dd):
-            """
-            Assumes ii is in the range [0, nx-1] for each axis (i.e., autocorrects
-            for ghost zones).
-            """
-            x = ii[:, 0] + 1
-            y = ii[:, 1] + 1
-            z = ii[:, 2] + 1
-            dx = dd[:, 0][..., None]
-            dy = dd[:, 1][..., None]
-            dz = dd[:, 2][..., None]
-
-            def get(dx_, dy_, dz_):
-                return d[mesh_ids, x + dx_, y + dy_, z + dz_]
-
-            c000 = get(0, 0, 0)
-            c100 = get(1, 0, 0)
-            c010 = get(0, 1, 0)
-            c110 = get(1, 1, 0)
-            c001 = get(0, 0, 1)
-            c101 = get(1, 0, 1)
-            c011 = get(0, 1, 1)
-            c111 = get(1, 1, 1)
-
-            return (
-                c000 * (1 - dx) * (1 - dy) * (1 - dz)
-                + c100 * dx * (1 - dy) * (1 - dz)
-                + c010 * (1 - dx) * dy * (1 - dz)
-                + c110 * dx * dy * (1 - dz)
-                + c001 * (1 - dx) * (1 - dy) * dz
-                + c101 * dx * (1 - dy) * dz
-                + c011 * (1 - dx) * dy * dz
-                + c111 * dx * dy * dz
-            )
 
         # get target meshblocks
         block_ids = np.array(self.find_blocks(positions))
@@ -127,7 +124,7 @@ class Meshblocks:
         dd = xi - ii
 
         # interpolate, refill, and return
-        interpd = trilinear_interpolate(data, block_ids_valid, ii, dd)
+        interpd = self._trilinear_interpolate(data, block_ids_valid, ii, dd)
         if interpd.ndim == 1:
             data = np.full(positions.shape[0], np.nan)
         else:
@@ -210,16 +207,13 @@ class BVHNode:
         subpoints = points[inside]
 
         if self.blocks is not None:
-            for i, pt in zip(idxs, subpoints):
-                for aabb, payload in self.blocks:
-                    if aabb.contains(pt):
-                        results[i] = payload
-                        break
+            for aabb, payload in self.blocks:
+                mask = aabb.contains_batch(subpoints)
+                results[idxs[mask]] = payload
         else:
             left_results = self.left.find_blocks_batch(subpoints)
             mask = (left_results != -1)
             results[idxs[mask]] = left_results[mask]
-
             right_results = self.right.find_blocks_batch(subpoints)
             mask = (right_results != -1)
             results[idxs[mask]] = right_results[mask]
