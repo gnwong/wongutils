@@ -37,14 +37,14 @@ def U123_to_ucon(U1, U2, U3, gcon, gcov):
     """
     U = np.stack((U1, U2, U3), axis=-1)
     alpha = 1. / np.sqrt(-gcon[..., 0, 0])
-    gamma = np.sqrt(1. + np.einsum('abci,abci->abc', np.einsum('abcij,abci->abcj',
+    gamma = np.sqrt(1. + np.einsum('...i,...i->...', np.einsum('...ij,...i->...j',
                                                                gcov[..., 1:, 1:],
                                                                U), U))
     ucon = np.zeros((*U1.shape, 4))
     ucon[..., 1:] = -gamma[..., None]*alpha[..., None]*gcon[..., 0, 1:]
     ucon[..., 1:] += U
     ucon[..., 0] = gamma / alpha
-    ucov = np.einsum('abcij,abci->abcj', gcov, ucon)
+    ucov = np.einsum('...ij,...i->...j', gcov, ucon)
 
     return ucon, ucov
 
@@ -64,10 +64,10 @@ def B123_to_bcon(B1, B2, B3, ucon, gcov):
     """
     B = np.stack((B1, B2, B3), axis=-1)
     bcon = np.zeros_like(ucon)
-    bcon[..., 0] = np.einsum('abci,abci->abc', B, ucon[..., 1:])
+    bcon[..., 0] = np.einsum('...i,...i->...', B, ucon[..., 1:])
     bcon[..., 1:] = B + ucon[..., 1:] * bcon[..., 0, None]
     bcon[..., 1:] /= ucon[..., 0, None]
-    bcov = np.einsum('abcij,abci->abcj', gcov, bcon)
+    bcov = np.einsum('...ij,...i->...j', gcov, bcon)
     return bcon, bcov
 
 
