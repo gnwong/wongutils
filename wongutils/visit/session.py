@@ -74,11 +74,22 @@ class VisitSession:
             elem = elem.find(f"./Object[@name='{name}']")
         return elem
 
-    def get_child_text(self, parent, tag, name):
+    def get_child(self, parent, name, tag=None):
+        """
+        Returns the first child element with the given name.
+        """
+        if tag is not None:
+            return parent.find(f"./{tag}[@name='{name}']")
+        for child in parent:
+            if child.attrib.get('name') == name:
+                return child
+        return None
+
+    def get_child_text(self, parent, name, tag=None):
         """
         Returns the text of a child field element with the given name.
         """
-        child = parent.find(f"./{tag}[@name='{name}']")
+        child = self.get_child(parent, name, tag=tag)
         if child is not None and child.text is not None:
             return child.text.strip()
         return None
@@ -154,9 +165,9 @@ class VisitSession:
             if plot_name and plot_name.startswith('plot'):
                 plot_info = self.get_path(*plots_args, plot_name)
                 plot_dict = dict(
-                    plugin=self.get_child_text(plot_info, 'Field', 'pluginID'),
-                    source=self.get_child_text(plot_info, 'Field', 'sourceID'),
-                    variable=self.get_child_text(plot_info, 'Field', 'variableName'),
+                    plugin=self.get_child_text(plot_info, 'pluginID'),
+                    source=self.get_child_text(plot_info, 'sourceID'),
+                    variable=self.get_child_text(plot_info, 'variableName'),
                     node=plot_info
                 )
                 plots_info[plot_name] = plot_dict
