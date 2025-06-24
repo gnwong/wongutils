@@ -62,9 +62,10 @@ def B123_to_bcon(B1, B2, B3, ucon, gcov):
 
     :returns: bcon, bcov: four-magnetic field and covariant magnetic inductiln vector
     """
+    ucov = np.einsum('...ij,...i->...j', gcov, ucon)
     B = np.stack((B1, B2, B3), axis=-1)
     bcon = np.zeros_like(ucon)
-    bcon[..., 0] = np.einsum('...i,...i->...', B, ucon[..., 1:])
+    bcon[..., 0] = np.einsum('...i,...i->...', B, ucov[..., 1:])
     bcon[..., 1:] = B + ucon[..., 1:] * bcon[..., 0, None]
     bcon[..., 1:] /= ucon[..., 0, None]
     bcov = np.einsum('...ij,...i->...j', gcov, bcon)
@@ -96,7 +97,7 @@ def bcon_to_B123(bcon, ucon):
 
     :returns: B1, B2, B3: primitive variables for magnetic field
     """
-    B1 = bcon[..., 1] + ucon[..., 0] * bcon[..., 0] / ucon[..., 0]
-    B2 = bcon[..., 2] + ucon[..., 0] * bcon[..., 0] / ucon[..., 0]
-    B3 = bcon[..., 3] + ucon[..., 0] * bcon[..., 0] / ucon[..., 0]
+    B1 = bcon[..., 1] * ucon[..., 0] - ucon[..., 1] * bcon[..., 0]
+    B2 = bcon[..., 2] * ucon[..., 0] - ucon[..., 2] * bcon[..., 0]
+    B3 = bcon[..., 3] * ucon[..., 0] - ucon[..., 3] * bcon[..., 0]
     return B1, B2, B3
