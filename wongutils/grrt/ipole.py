@@ -21,6 +21,7 @@ THE SOFTWARE.
 
 import subprocess
 import numpy as np
+import h5py
 from scipy.optimize import brentq
 
 
@@ -309,3 +310,49 @@ def get_fluxes(dumpfile, rlow=1, rhigh=40, thetacam=163, target='m87', munit=1.e
     Ftot = float(st[-4+st.index('unpol')])
 
     return Ftot_unpol, Ftot
+
+
+def load_polarized_image(fname):
+    """
+    Load a polarized image from an ipole-style hdf5 image file.
+    Returns a dictionary with the image data including
+    intensity (I), Stokes Q, U, V, electric vector position angle (evpa),
+    field of view in GM/c^2 (fov_in_M), and scale to convert between
+    cgs intensity units (default) and flux density in Jy.
+
+    :arg fname: name of the file to load
+    :returns: dictionary containing the image data
+    """
+
+    with h5py.File(fname, 'r') as hfp:
+        pol = np.array(hfp['pol'])
+        evpa_0 = 'N'
+        dx = None
+        scale = None
+        if 'header' in hfp:
+            if 'evpa_0' in hfp['header']:
+                evpa_0 = hfp['header']['evpa_0'][()]
+            dx = hfp['header']['camera']['dx'][()]
+            scale = hfp['header']['scale'][()]
+
+    I = pol[:, :, 0]
+    Q = pol[:, :, 1]
+    U = pol[:, :, 2]
+    V = pol[:, :, 3]
+
+    evpa = (180./3.14159) * np.arctan2(U, Q) / 2.
+    if evpa_0 == "W":
+        evpa += 90.
+    evpa[evpa > 90.] -= 180.
+
+    image_data = dict(
+        I=I,
+        Q=Q,
+        U=U,
+        V=V,
+        evpa=evpa,
+        fov_in_M=dx,
+        scale=scale
+    )
+
+    return image_data
