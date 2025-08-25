@@ -32,6 +32,10 @@ def test_metrics():
         gcov_ks_known = gcov_ks_tests[test]
         assert np.allclose(gcov_ks, gcov_ks_known), \
             f"gcov_ks test failed for {test}: {gcov_ks} != {gcov_ks_known}"
+        gcon_ks = metrics.get_gcon_ks_from_ks(bhspin, r_ks, h_ks)
+        gginv = np.einsum('...ij,...jk->...ik', gcov_ks, gcon_ks)
+        assert np.allclose(gginv, np.eye(4)), \
+            f"gcov_ks test failed for {test}: {gginv} != I"
 
     # test gcov_cks against known values
     gcov_cks_tests = saved_metrics['gcov_cks']

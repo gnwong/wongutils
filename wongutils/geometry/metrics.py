@@ -48,12 +48,12 @@ def get_gcov_ks_from_ks(bhspin, R, H, P=None):
     sth = np.sin(H)
     s2 = sth*sth
     rho2 = R*R + bhspin*bhspin*cth*cth
-    gcov[:, :, 0, 0] = (-1. + 2. * R / rho2)
-    gcov[:, :, 0, 1] = (2. * R / rho2)
-    gcov[:, :, 0, 3] = (-2. * bhspin * R * s2 / rho2)
+    gcov[:, :, 0, 0] = -1. + 2. * R / rho2
+    gcov[:, :, 0, 1] = 2. * R / rho2
+    gcov[:, :, 0, 3] = -2. * bhspin * R * s2 / rho2
     gcov[:, :, 1, 0] = gcov[:, :, 0, 1]
-    gcov[:, :, 1, 1] = (1. + 2. * R / rho2)
-    gcov[:, :, 1, 3] = (-bhspin * s2 * (1. + 2. * R / rho2))
+    gcov[:, :, 1, 1] = 1. + 2. * R / rho2
+    gcov[:, :, 1, 3] = - bhspin * s2 * (1. + 2. * R / rho2)
     gcov[:, :, 2, 2] = rho2
     gcov[:, :, 3, 0] = gcov[:, :, 0, 3]
     gcov[:, :, 3, 1] = gcov[:, :, 1, 3]
@@ -70,6 +70,53 @@ def get_gcov_ks_from_ks(bhspin, R, H, P=None):
         gcov = gcov[0, 0]
 
     return gcov
+
+
+def get_gcon_ks_from_ks(bhspin, R, H, P=None):
+    """Return gcon with ks components from ks coordinate
+    mesh (R, H, P). This function assumes regularity in P."""
+
+    # check if R is a scalar (bit of a kludge)
+    input_was_scalar = False
+    if np.isscalar(R):
+        R = np.array([R]).reshape((1, 1))
+        H = np.array([H]).reshape((1, 1))
+        input_was_scalar = True
+
+    # get grid geometry
+    if P is not None:
+        N1, N2, N3 = R.shape
+        R = R[:, :, 0]
+        H = H[:, :, 0]
+    else:
+        N1, N2 = R.shape
+
+    # generate metric over 2d mesh
+    gcon = np.zeros((N1, N2, 4, 4))
+    cth = np.cos(H)
+    sth = np.sin(H)
+    s2 = sth*sth
+    rho2 = R*R + bhspin*bhspin*cth*cth
+    gcon[:, :, 0, 0] = -1. - 2. * R / rho2
+    gcon[:, :, 0, 1] = 2. * R / rho2
+    gcon[:, :, 1, 0] = gcon[:, :, 0, 1]
+    gcon[:, :, 1, 1] = (-2. * R + rho2 + bhspin**2. * s2) / rho2
+    gcon[:, :, 1, 3] = bhspin / rho2
+    gcon[:, :, 2, 2] = 1 / rho2
+    gcon[:, :, 3, 1] = gcon[:, :, 1, 3]
+    gcon[:, :, 3, 3] = 1 / rho2 / s2
+
+    # extend along P dimension if applicable
+    if P is not None:
+        gcon2d = gcon
+        gcon = np.zeros((N1, N2, N3, 4, 4))
+        gcon[:, :, :, :, :] = gcon2d[:, :, None, :, :]
+
+    # if input was a scalar, return a scalar
+    if input_was_scalar:
+        gcon = gcon[0, 0]
+
+    return gcon
 
 
 def get_gcov_bl_from_bl(bhspin, R, H, P=None):
