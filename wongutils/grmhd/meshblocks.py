@@ -55,6 +55,65 @@ class Meshblocks:
         verts = np.linspace(start - dx / 2, end + dx / 2, n + 2)
         return edges, verts
 
+    # helper function for nearest neighbor fill
+    def _nearest_neighbor_fill(self, d, mesh_ids, ii, dd):
+        """
+        Assumes ii is in the range [0, nx-1] for each axis (i.e., autocorrects
+        for ghost zones).
+        """
+        x = ii[:, 0] + (dd[:, 0] + 1.5).astype(int)
+        y = ii[:, 1] + (dd[:, 1] + 1.5).astype(int)
+        z = ii[:, 2] + (dd[:, 2] + 1.5).astype(int)
+        return d[mesh_ids, x, y, z]
+
+    # helper function for bilinear interpolation
+    def _bilinear_interpolate(self, d, mesh_ids, ii, dd, slice_dim):
+        """
+        Assumes ii is in the range [0, nx-1] for each axis (i.e., autocorrects
+        for ghost zones).
+        """
+
+        x = ii[:, 0] + 1
+        y = ii[:, 1] + 1
+        z = ii[:, 2] + 1
+        dx = dd[:, 0][..., None]
+        dy = dd[:, 1][..., None]
+        dz = dd[:, 2][..., None]
+
+        if slice_dim == 1:
+            x = np.ones_like(x)
+            c00 = d[mesh_ids, x, y, z]
+            c10 = d[mesh_ids, x, y + 1, z]
+            c01 = d[mesh_ids, x, y, z + 1]
+            c11 = d[mesh_ids, x, y + 1, z + 1]
+            da = dy
+            db = dz
+        elif slice_dim == 2:
+            y = np.ones_like(y)
+            c00 = d[mesh_ids, x, y, z]
+            c10 = d[mesh_ids, x + 1, y, z]
+            c01 = d[mesh_ids, x, y, z + 1]
+            c11 = d[mesh_ids, x + 1, y, z + 1]
+            da = dx
+            db = dz
+        elif slice_dim == 3:
+            z = np.ones_like(z)
+            c00 = d[mesh_ids, x, y, z]
+            c10 = d[mesh_ids, x + 1, y, z]
+            c01 = d[mesh_ids, x, y + 1, z]
+            c11 = d[mesh_ids, x + 1, y + 1, z]
+            da = dx
+            db = dy
+        else:
+            raise ValueError("Invalid slice_dim: {}".format(slice_dim))
+
+        return (
+            c00 * (1 - da) * (1 - db)
+            + c10 * da * (1 - db)
+            + c01 * (1 - da) * db
+            + c11 * da * db
+        )
+
     # helper function for trilinear interpolation
     def _trilinear_interpolate(self, d, mesh_ids, ii, dd):
         """
@@ -90,7 +149,8 @@ class Meshblocks:
 
     # helper function to interpolate data at a set of positions
     def interpolate_data_at(self, data, positions, levels_condition=None,
-                            comparison_level=None):
+                            comparison_level=None, slice_dim=None,
+                            interpolation='linear'):
 
         # get target meshblocks
         block_ids = np.array(self.find_blocks(positions))
@@ -123,15 +183,28 @@ class Meshblocks:
         ii = np.floor(xi).astype(int)
         dd = xi - ii
 
-        # interpolate, refill, and return
-        interpd = self._trilinear_interpolate(data, block_ids_valid, ii, dd)
-        if interpd.ndim == 1:
-            data = np.full(positions.shape[0], np.nan)
-        else:
-            data = np.full((positions.shape[0], interpd.shape[1]), np.nan)
-        data[valid_mask] = interpd
+        if interpolation == 'nearest':
+            interpd = self._nearest_neighbor_fill(data, block_ids_valid, ii, dd)
+            if interpd.ndim == 1:
+                data = np.full(positions.shape[0], np.nan)
+            else:
+                data = np.full((positions.shape[0], interpd.shape[1]), np.nan)
+            data[valid_mask] = interpd
+            return data
 
-        return data
+        elif interpolation in ['linear']:
+            if slice_dim is not None:
+                interpd = self._bilinear_interpolate(data, block_ids_valid, ii, dd, slice_dim)
+            else:
+                interpd = self._trilinear_interpolate(data, block_ids_valid, ii, dd)
+            if interpd.ndim == 1:
+                data = np.full(positions.shape[0], np.nan)
+            else:
+                data = np.full((positions.shape[0], interpd.shape[1]), np.nan)
+            data[valid_mask] = interpd
+            return data
+
+        raise ValueError("Unknown interpolation method: {}".format(interpolation))
 
 
 class AABB:

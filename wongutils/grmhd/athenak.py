@@ -57,21 +57,31 @@ class AthenaKSnapshot:
                f"cycle={self.data['cycle']}, meshblocks={self.data['n_mbs']}, " \
                f"vars={self.nvars}>"
 
-    def get_primitives_at(self, X, Y, Z):
+    def get_primitives_at(self, X, Y, Z, interpolation='linear'):
         """
         Get primitive variables at the specified coordinates.
 
         :arg X: x1 coordinates
         :arg Y: x2 coordinates
         :arg Z: x3 coordinates
+        :arg interpolation: (default='linear') interpolation method to use
 
         :returns: primitive variables at the specified coordinates
         """
 
         nx, ny, nz = X.shape
 
+        if self.slices_position[0] is not None:
+            X = np.full_like(X, self.slices_position[0])
+        if self.slices_position[1] is not None:
+            Y = np.full_like(Y, self.slices_position[1])
+        if self.slices_position[2] is not None:
+            Z = np.full_like(Z, self.slices_position[2])
+
         positions = np.column_stack((X.ravel(), Y.ravel(), Z.ravel()))
-        interpolated = self.meshblocks.interpolate_data_at(self.prims, positions)
+        interpolated = self.meshblocks.interpolate_data_at(self.prims, positions,
+                                                           slice_dim=self.slice_dim,
+                                                           interpolation=interpolation)
 
         if interpolated is None:
             print('No data found at the specified coordinates.')
@@ -294,6 +304,8 @@ class AthenaKSnapshot:
         data[:, 1:-1, 1:-1, 1:-1, 7] = np.array(self.data['mb_data']['bcc3'])
         self.prims = data.transpose((0, 3, 2, 1, 4))
 
+        self.slices = []
+        self.slices_position = [None, None, None]
         self.mb_geometry = self.data['mb_geometry']
         self.mb_levels = self.data['mb_logical'][:, 3]
 
@@ -301,26 +313,44 @@ class AthenaKSnapshot:
         nx2 = self.data['nx2_mb']
         nx3 = self.data['nx3_mb']
 
+        nx1_out = self.data['nx1_out_mb']
+        nx2_out = self.data['nx2_out_mb']
+        nx3_out = self.data['nx3_out_mb']
+
+        if nx1_out == 1:
+            self.slices.append(1)
+            self.slices_position[0] = np.max(self.data['mb_geometry'][:, 0])
+        elif nx2_out == 1:
+            self.slices.append(2)
+            self.slices_position[1] = np.max(self.data['mb_geometry'][:, 2])
+        elif nx3_out == 1:
+            self.slices.append(3)
+            self.slices_position[2] = np.max(self.data['mb_geometry'][:, 4])
+        if len(self.slices) > 1:
+            raise ValueError("Cannot handle more than one sliced dimension.")
+
+        self.slice_dim = self.slices[0] if len(self.slices) > 0 else None
+
         # this code triggers when the data in the snapshot file has output
         # meshblocks that are not the expected size. this could happen if,
         # for example, the snapshot file already includes ghost zones.
         # this behavior is currently unsupported.
-        if self.data['nx1_out_mb'] != nx1 or \
-           self.data['nx2_out_mb'] != nx2 or \
-           self.data['nx3_out_mb'] != nx3:
+        if ((1 not in self.slices) and (nx1_out != nx1)) or \
+           ((2 not in self.slices) and (nx2_out != nx2)) or \
+           ((3 not in self.slices) and (nx3_out != nx3)):
             raise ValueError(
                 f"Mismatch in meshblock sizes: {self.data['nx1_out_mb']}, "
                 f"{self.data['nx2_out_mb']}, {self.data['nx3_out_mb']} vs "
                 f"{nx1}, {nx2}, {nx3}"
             )
 
-        self.meshblocks = Meshblocks(self.mb_geometry, self.mb_levels, nx1, nx2, nx3)
+        self.meshblocks = Meshblocks(self.mb_geometry, self.mb_levels, nx1_out, nx2_out, nx3_out)
 
     def _populate_ghostzones_meshblock(self, mbi):
 
-        nx1 = self.data['nx1_mb']
-        nx2 = self.data['nx2_mb']
-        nx3 = self.data['nx3_mb']
+        nx1 = self.data['nx1_out_mb']
+        nx2 = self.data['nx2_out_mb']
+        nx3 = self.data['nx3_out_mb']
         geometry = self.mb_geometry[mbi]
 
         _, x1v = self.meshblocks._get_edges_and_verts(geometry[0], geometry[1], nx1)
@@ -332,6 +362,8 @@ class AthenaKSnapshot:
         face_infos = []
 
         for axis, idx in face_indices:
+            if axis+1 in self.slices:
+                continue
             if axis == 0:
                 x2g, x3g = np.meshgrid(x2v, x3v, indexing='ij')
                 x1g = np.full_like(x2g, x1v[idx])
@@ -352,7 +384,8 @@ class AthenaKSnapshot:
             face_infos.append((axis, idx, shape, positions.shape[0]))
 
         all_positions = np.vstack(all_positions)
-        interpolated = self.meshblocks.interpolate_data_at(self.prims, all_positions)
+        interpolated = self.meshblocks.interpolate_data_at(self.prims, all_positions,
+                                                           slice_dim=self.slice_dim)
 
         failures = 0
         if interpolated is None:
@@ -360,6 +393,7 @@ class AthenaKSnapshot:
 
         cursor = 0
         for axis, idx, shape, count in face_infos:
+
             face_data = interpolated[cursor:cursor + count]
             cursor += count
 
