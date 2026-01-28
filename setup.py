@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(name="wongutils",
-      version="0.1.8",
+      version="0.1.9",
       description="",
       url="https://github.com/gnwong/wongutils",
       author="gnwong",
