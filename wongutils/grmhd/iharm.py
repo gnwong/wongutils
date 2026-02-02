@@ -167,7 +167,6 @@ def load_snapshot(fname, gcov=None, gcon=None):
 
 
 class iharmSnapshot:
-
     def __init__(self, fname, verbose=False):
         """
         Load iharm snapshot file and return data in a dictionary.
@@ -185,7 +184,6 @@ class iharmSnapshot:
         self._coordinate_info = get_header_coordinates(fname)
         self._x2_lookup_interp = None
         self._prims_interp = None
-
 
     def __repr__(self):
         """Return a string representation of the iharmSnapshot object."""
@@ -213,7 +211,7 @@ class iharmSnapshot:
         """
 
         if in_coords not in ['ks']:
-            raise NotImplementedError("in_coords only supported for Kerr-Schild coordinates")
+            raise NotImplementedError("in_coords only supported for 'ks' coordinates")
 
         if self._prims_interp is None:
             self._build_x2_lookup()
@@ -328,8 +326,10 @@ class iharmSnapshot:
 
         # x1, x2: copy edge values; x3: periodic wrap
         prims_ext = np.concatenate([prims[0:1], prims, prims[-1:]], axis=0)
-        prims_ext = np.concatenate([prims_ext[:, 0:1], prims_ext, prims_ext[:, -1:]], axis=1)
-        prims_ext = np.concatenate([prims_ext[:, :, -1:], prims_ext, prims_ext[:, :, 0:1]], axis=2)
+        prims_ext = np.concatenate([prims_ext[:, 0:1], prims_ext,
+                                    prims_ext[:, -1:]], axis=1)
+        prims_ext = np.concatenate([prims_ext[:, :, -1:], prims_ext,
+                                    prims_ext[:, :, 0:1]], axis=2)
 
         self._prims_interp = RegularGridInterpolator(
             (x1_ext, x2_ext, x3_ext), prims_ext,

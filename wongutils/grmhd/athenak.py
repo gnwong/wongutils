@@ -344,7 +344,8 @@ class AthenaKSnapshot:
                 f"{nx1}, {nx2}, {nx3}"
             )
 
-        self.meshblocks = Meshblocks(self.mb_geometry, self.mb_levels, nx1_out, nx2_out, nx3_out)
+        self.meshblocks = Meshblocks(self.mb_geometry, self.mb_levels,
+                                     nx1_out, nx2_out, nx3_out)
 
     def _populate_ghostzones_meshblock(self, mbi):
 

@@ -194,7 +194,8 @@ class Meshblocks:
 
         elif interpolation in ['linear']:
             if slice_dim is not None:
-                interpd = self._bilinear_interpolate(data, block_ids_valid, ii, dd, slice_dim)
+                interpd = self._bilinear_interpolate(data, block_ids_valid, ii,
+                                                     dd, slice_dim)
             else:
                 interpd = self._trilinear_interpolate(data, block_ids_valid, ii, dd)
             if interpd.ndim == 1:
