@@ -21,7 +21,10 @@ THE SOFTWARE.
 
 import numpy as np
 import h5py
-from wongutils.geometry import metrics
+from scipy.interpolate import RegularGridInterpolator
+from scipy.optimize import brentq
+
+from wongutils.geometry import coordinates, metrics
 
 
 def get_native_grid(fname, verbose=False, corners=True, array3d=False):
@@ -161,3 +164,212 @@ def load_snapshot(fname, gcov=None, gcon=None):
     bcov = np.einsum('abcij,abci->abcj', gcov, bcon)
 
     return (rho, UU, U, B, ucon, ucov, bcon, bcov)
+
+
+class iharmSnapshot:
+
+    def __init__(self, fname, verbose=False):
+        """
+        Load iharm snapshot file and return data in a dictionary.
+
+        :arg fname: filename of snapshot file to load
+        :arg verbose: (default=False) whether to print information messages
+        """
+
+        self.fname = fname
+
+        if fname.endswith('.h5'):
+            self.data = self._load_h5(fname)
+
+        self.data.update(self._load_header(fname))
+        self._coordinate_info = get_header_coordinates(fname)
+        self._x2_lookup_interp = None
+        self._prims_interp = None
+
+
+    def __repr__(self):
+        """Return a string representation of the iharmSnapshot object."""
+        t = self.data.get('time', '?')
+        n_step = self.data.get('n_step', '?')
+        n_dump = self.data.get('n_dump', '?')
+        nvars = self.data.get('nvars', '?')
+        return (f"<iharmSnapshot: fname={self.fname}, time={t}, "
+                f"n_step={n_step}, n_dump={n_dump}, vars={nvars}>")
+
+    def get_primitives_at(self, R, H, P, in_coords=None):
+        """
+        Get primitive variables at the specified Kerr-Schild
+        coordinates.
+
+        :arg R: KS radial coordinate
+        :arg H: KS polar angle theta (colatitude, 0 to pi)
+        :arg P: KS azimuthal angle phi (0 to 2pi)
+        :arg in_coords: (default=None) coordinate system to use for input coordinates
+                       (default=None) use native coordinates
+                       'ks': use Kerr-Schild coordinates
+
+        :returns: primitive variables at the specified coordinates,
+                  shape (n1, n2, n3, 8) with [rho, UU, U1, U2, U3, B1, B2, B3]
+        """
+
+        if in_coords not in ['ks']:
+            raise NotImplementedError("in_coords only supported for Kerr-Schild coordinates")
+
+        if self._prims_interp is None:
+            self._build_x2_lookup()
+
+        nx, ny, nz = R.shape
+        coord_info = self._coordinate_info
+        metric = coord_info['metric']
+
+        P = np.mod(P, 2. * np.pi)
+
+        # KS -> native (x1, x2, x3)
+        x1 = np.log(R)
+        x3 = P
+        if metric == 'eks':
+            x2 = H / np.pi
+        else:
+            x2 = self._x2_lookup_interp(np.column_stack((R.ravel(), H.ravel())))
+            x2 = x2.reshape(R.shape)
+
+        points = np.column_stack((x1.ravel(), x2.ravel(), x3.ravel()))
+        interpolated = self._prims_interp(points)
+        return interpolated.reshape((nx, ny, nz, self.data['nvars']))
+
+    def _load_h5(self, fname):
+        """Load iharm HDF5 snapshot and return data dictionary."""
+        with h5py.File(fname, 'r') as hfp:
+            prims = np.array(hfp['prims'])
+            t = float(hfp['t'][()])
+            n_step = int(hfp['n_step'][()]) if 'n_step' in hfp else None
+            n_dump = int(hfp['n_dump'][()]) if 'n_dump' in hfp else None
+        N1, N2, N3, nvars = prims.shape
+        return {
+            'prims': prims,
+            'time': t,
+            'n_step': n_step,
+            'n_dump': n_dump,
+            'N1': N1, 'N2': N2, 'N3': N3,
+            'nvars': nvars,
+        }
+
+    def _load_header(self, fname):
+        """
+        Load iharm HDF5 header and return a nested dictionary structure.
+        """
+        def _h5_to_python(obj):
+            """Convert h5py to python."""
+            val = obj[()]
+            if hasattr(val, 'decode'):
+                return val.decode('utf-8')
+            if hasattr(val, 'ndim') and val.ndim == 0:
+                return val.item()
+            return val
+
+        def _visit_group(group, out_dict):
+            """Recursively visit HDF5 group and populate dict."""
+            for key in group.keys():
+                obj = group[key]
+                if isinstance(obj, h5py.Dataset):
+                    out_dict[key] = _h5_to_python(obj)
+                elif isinstance(obj, h5py.Group):
+                    out_dict[key] = {}
+                    _visit_group(obj, out_dict[key])
+
+        header_dict = {}
+
+        with h5py.File(fname, 'r') as hfp:
+            header_name = 'header'
+
+            if header_name in hfp.keys():
+                header_dict['header'] = {}
+                _visit_group(hfp[header_name], header_dict['header'])
+
+            # include top-level dump metadata
+            for key in ['t', 'dt', 'n_step', 'n_dump', 'dump_cadence',
+                        'full_dump_cadence', 'is_full_dump']:
+                if key in hfp.keys():
+                    try:
+                        val = hfp[key][()]
+                        if hasattr(val, 'ndim') and val.ndim == 0:
+                            val = val.item()
+                        header_dict[key] = val
+                    except (TypeError, ValueError):
+                        pass
+
+        return header_dict
+
+    def _build_x2_lookup(self, n_r=None, n_th=None):
+        """
+        Build KS to FMKS x2 lookup table for coordinate inversion.
+
+        :arg nr: number of r points in lookup (default: 2x native N1)
+        :arg nh: number of theta points in lookup (default: 2x native N2)
+        """
+        coord_info = self._coordinate_info
+        metric = coord_info['metric']
+        N1 = self.data['N1']
+        N2 = self.data['N2']
+        Rin = coord_info['Rin']
+        Rout = coord_info['Rout']
+
+        x1, x2, x3 = get_native_grid(self.fname, corners=False)
+        prims = self.data['prims']
+
+        # Extend grid by one zone on each side; out-of-bounds queries
+        # interpolate to nearest edge instead of extrapolating
+        dx1 = x1[1] - x1[0]
+        dx2 = x2[1] - x2[0]
+        dx3 = x3[1] - x3[0]
+        x1_ext = np.concatenate([[x1[0] - dx1], x1, [x1[-1] + dx1]])
+        x2_ext = np.concatenate([[x2[0] - dx2], x2, [x2[-1] + dx2]])
+        x3_ext = np.concatenate([[x3[0] - dx3], x3, [x3[-1] + dx3]])
+
+        # x1, x2: copy edge values; x3: periodic wrap
+        prims_ext = np.concatenate([prims[0:1], prims, prims[-1:]], axis=0)
+        prims_ext = np.concatenate([prims_ext[:, 0:1], prims_ext, prims_ext[:, -1:]], axis=1)
+        prims_ext = np.concatenate([prims_ext[:, :, -1:], prims_ext, prims_ext[:, :, 0:1]], axis=2)
+
+        self._prims_interp = RegularGridInterpolator(
+            (x1_ext, x2_ext, x3_ext), prims_ext,
+            method='linear', bounds_error=False, fill_value=np.nan
+        )
+
+        if metric == 'eks':
+            self._x2_lookup_interp = None
+            self._r_grid = None
+            self._th_grid = None
+            return
+
+        if n_r is None:
+            n_r = 2 * N1
+        if n_th is None:
+            n_th = 2 * N2
+
+        r_grid = np.linspace(Rin, Rout, n_r)
+        th_grid = np.linspace(0., np.pi, n_th)
+
+        def theta_residual(x2, x1, th_target):
+            r, h, _ = coordinates.x_ks_from_fmks(coord_info, x1, x2, 0.)
+            return h - th_target
+
+        x2_table = np.zeros((n_r, n_th))
+        for i, r in enumerate(r_grid):
+            x1 = np.log(r)
+            for j, th in enumerate(th_grid):
+                try:
+                    x2_table[i, j] = brentq(
+                        lambda x2, x1=x1, th_target=th: theta_residual(x2, x1, th_target),
+                        1e-10, 1. - 1e-10,
+                        xtol=1e-12, maxiter=100
+                    )
+                except ValueError:
+                    x2_table[i, j] = np.nan
+
+        self._x2_lookup_interp = RegularGridInterpolator(
+            (r_grid, th_grid), x2_table,
+            method='linear', bounds_error=False, fill_value=np.nan
+        )
+        self._r_grid = r_grid
+        self._th_grid = th_grid
