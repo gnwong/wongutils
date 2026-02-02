@@ -373,3 +373,75 @@ class iharmSnapshot:
         )
         self._r_grid = r_grid
         self._th_grid = th_grid
+
+    def estimate_x2_lookup_error(self):
+        """
+        Estimate the error in x2 found through the KS to FMKS lookup table
+        at each native grid zone. Used to assess whether lookup resolution
+        should be refined.
+
+        For each zone (i, j), compute true (r, h) from (x1_i, x2_j), then
+        invert via the lookup to get x2_lookup. Error = |x2_j - x2_lookup|.
+
+        :returns: dict with
+            - max_absolute_error: maximum |x2_true - x2_lookup| over all zones
+            - mean_absolute_error: mean error over all zones
+            - error_per_radial_zone: (N1,) array of max error in each radial zone
+            - r_per_zone: (N1,) array of radial coordinate at zone center
+            - nr, nh: current lookup resolution (for reference)
+        """
+        if self._prims_interp is None:
+            self._build_x2_lookup()
+
+        coord_info = self._coordinate_info
+        metric = coord_info['metric']
+
+        if metric == 'eks':
+            return {
+                'max_absolute_error': 0.0,
+                'mean_absolute_error': 0.0,
+                'error_per_radial_zone': np.zeros(self.data['N1']),
+                'r_per_zone': np.exp(get_native_grid(self.fname, corners=False)[0]),
+                'nr': None,
+                'nh': None,
+                'note': 'EKS has analytic inverse; no lookup error.',
+            }
+
+        x1, x2, x3 = get_native_grid(self.fname, corners=False)
+        N1, N2 = len(x1), len(x2)
+
+        # (r, h) at each zone (i, j) from FMKS to KS
+        X1, X2 = np.meshgrid(x1, x2, indexing='ij')
+        r, th, _ = coordinates.x_ks_from_fmks(coord_info, X1, X2, np.zeros_like(X1))
+
+        # x2 from lookup at (r, h)
+        points = np.column_stack((r.ravel(), th.ravel()))
+        x2_lookup = self._x2_lookup_interp(points).reshape(N1, N2)
+
+        # true x2 at each zone
+        x2_true = X2
+
+        # absolute error
+        abs_err = np.abs(x2_true - x2_lookup)
+        abs_err = np.nan_to_num(abs_err, nan=0.0)
+
+        # relative error
+        rel_err = np.abs(x2_true - x2_lookup) / np.abs(x2_true)
+        rel_err = np.nan_to_num(rel_err, nan=0.0)
+
+        # per-radial-zone max error
+        error_per_radial_zone = np.max(abs_err, axis=1)
+        r_per_zone = np.exp(x1)
+        error_per_radial_zone_relative = np.max(rel_err, axis=1)
+
+        return {
+            'max_absolute_error': float(np.max(abs_err)),
+            'mean_absolute_error': float(np.mean(abs_err)),
+            'error_per_radial_zone': error_per_radial_zone,
+            'max_relative_error': float(np.max(rel_err)),
+            'mean_relative_error': float(np.mean(rel_err)),
+            'error_per_radial_zone_relative': error_per_radial_zone_relative,
+            'r_per_zone': r_per_zone,
+            'nr': len(self._r_grid),
+            'nh': len(self._th_grid),
+        }
