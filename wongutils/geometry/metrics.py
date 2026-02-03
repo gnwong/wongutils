@@ -358,21 +358,18 @@ def get_gcov_fmks_from_fmks(coordinate_info, X1, X2, X3=None):
         X2 = np.array([X2]).reshape((1, 1))
         input_was_scalar = True
 
-    # get grid geometry
+    # get grid geometry and 2d coordinate arrays
     if X3 is not None:
         N1, N2, N3 = X1.shape
-        x1 = X1[:, 0, 0]
-        x2 = X2[0, :, 0]
-        x3 = X3[0, 0, :]
+        X1_2d = X1[:, :, 0]
+        X2_2d = X2[:, :, 0]
     else:
         N1, N2 = X1.shape
-        x1 = X1[:, 0]
-        x2 = X2[0, :]
-        x3 = [0.]
+        X1_2d = X1
+        X2_2d = X2
 
-    R, H, P = coordinates.get_ks_from_fmks(coordinate_info, x1, x2, x3)
-    R = R[:, :, 0]
-    H = H[:, :, 0]
+    # use x_ks_from_fmks for element-wise conversion
+    R, H, _ = coordinates.x_ks_from_fmks(coordinate_info, X1_2d, X2_2d, 0.)
 
     gcov_ks = get_gcov_ks_from_ks(coordinate_info['bhspin'], R, H)
 

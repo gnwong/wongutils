@@ -65,6 +65,38 @@ def test_metrics():
             f"gcov_fmks test failed for {test}: {gcov_fmks} != {gcov_fmks_known}"
 
 
+def test_metrics_nonsymmetric():
+    """Test metrics for nonsymmetric coordinate grids."""
+
+    # tests for fmks
+    coordinate_info = {
+        'bhspin': 0.37,
+        'Rin': 1.2175642950007606,
+        'Rout': 1000.0,
+        'mks_smooth': 0.5,
+        'hslope': 0.3,
+        'poly_alpha': 14.0,
+        'poly_xt': 0.82,
+        'poly_norm': 0.7578173169894967
+    }
+    x1_fmks = np.linspace(0.75, 5., 10)
+    x2_fmks = np.linspace(0.019, 0.93, 6)
+    X1_fmks, X2_fmks = np.meshgrid(x1_fmks, x2_fmks, indexing='ij')
+    for i in range(len(x1_fmks)):
+        X2_fmks[i, :] = np.linspace(0.019*i/10, 1.-0.07*i/10., 6)
+
+    gcov_fmks = metrics.get_gcov_fmks_from_fmks(coordinate_info, X1_fmks, X2_fmks)
+
+    for i in range(len(x1_fmks)):
+        for j in range(len(x2_fmks)):
+            # Use actual coordinates at (i,j) - X2 varies per row in nonsymmetric grid
+            gcov_fmks_test = metrics.get_gcov_fmks_from_fmks(
+                coordinate_info, X1_fmks[i, j], X2_fmks[i, j])
+            assert np.allclose(gcov_fmks[i, j], gcov_fmks_test), \
+                f"gcov_fmks ({X1_fmks[i,j]},{X2_fmks[i,j]}): " + \
+                f"{gcov_fmks[i, j]} != {gcov_fmks_test}"
+
+
 def test_input_sizes():
     """Regression test to compare gcov in various
     coordinates against known values."""
@@ -261,5 +293,6 @@ if __name__ == "__main__":
 
     test_coordinate_transforms()
     test_metrics()
+    test_metrics_nonsymmetric()
     test_dxdx_metrics()
     test_input_sizes()
