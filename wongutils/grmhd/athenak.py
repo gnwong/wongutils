@@ -27,13 +27,15 @@ from wongutils.grmhd.meshblocks import Meshblocks
 
 class AthenaKSnapshot:
 
-    def __init__(self, fname, populate_ghostzones=True, verbose=False):
+    def __init__(self, fname, populate_ghostzones=True, verbose=False,
+                 variable_mapping=None):
         """
         Load Athena++ snapshot file and return data in a dictionary.
 
         :arg fname: filename of snapshot file to load
         :arg populate_ghostzones: (default=True) whether to populate ghost zones
         :arg verbose: (default=False) whether to print informational messages
+        :arg variable_mapping: (default=None) variable list for primitive array
         """
 
         self.fname = fname
@@ -42,7 +44,7 @@ class AthenaKSnapshot:
             self.data = self._load_binary(fname)
 
         self.header = self._parse_header(self.data['header'])
-        self._initialize_data(verbose=verbose)
+        self._initialize_data(verbose=verbose, variable_mapping=variable_mapping)
 
         if populate_ghostzones:
             self._populate_ghostzones(verbose=verbose)
@@ -282,7 +284,7 @@ class AthenaKSnapshot:
             header_dict[group][ltoks[0].strip()] = value
         return header_dict
 
-    def _initialize_data(self, verbose=False):
+    def _initialize_data(self, verbose=False, variable_mapping=None):
 
         # ['dens', 'velx', 'vely', 'velz', 'eint', 'bcc1', 'bcc2', 'bcc3'])
         # by convention, athenak uses particular names for the
@@ -290,18 +292,27 @@ class AthenaKSnapshot:
         # to construct the primtiive array, which will we make
         # of shape (nmb, n3_mb, n2_mb, n1_mb, nvars)
 
-        self.nvars = 8
-        dens = np.array(self.data['mb_data']['dens'])
-        nmb, nz, ny, nx = dens.shape
-        data = np.zeros((nmb, nz+2, ny+2, nx+2, self.nvars), dtype=dens.dtype)
-        data[:, 1:-1, 1:-1, 1:-1, 0] = dens
-        data[:, 1:-1, 1:-1, 1:-1, 1] = np.array(self.data['mb_data']['eint'])
-        data[:, 1:-1, 1:-1, 1:-1, 2] = np.array(self.data['mb_data']['velx'])
-        data[:, 1:-1, 1:-1, 1:-1, 3] = np.array(self.data['mb_data']['vely'])
-        data[:, 1:-1, 1:-1, 1:-1, 4] = np.array(self.data['mb_data']['velz'])
-        data[:, 1:-1, 1:-1, 1:-1, 5] = np.array(self.data['mb_data']['bcc1'])
-        data[:, 1:-1, 1:-1, 1:-1, 6] = np.array(self.data['mb_data']['bcc2'])
-        data[:, 1:-1, 1:-1, 1:-1, 7] = np.array(self.data['mb_data']['bcc3'])
+        if variable_mapping is not None:
+            self.nvars = len(variable_mapping)
+            var1 = np.array(self.data['mb_data'][variable_mapping[0]])
+            nmb, nz, ny, nx = var1.shape
+            data = np.zeros((nmb, nz+2, ny+2, nx+2, self.nvars), dtype=var1.dtype)
+            for vari, var in enumerate(variable_mapping):
+                data[:, 1:-1, 1:-1, 1:-1, vari] = np.array(self.data['mb_data'][var])
+        else:
+            self.nvars = 8
+            dens = np.array(self.data['mb_data']['dens'])
+            nmb, nz, ny, nx = dens.shape
+            data = np.zeros((nmb, nz+2, ny+2, nx+2, self.nvars), dtype=dens.dtype)
+            data[:, 1:-1, 1:-1, 1:-1, 0] = dens
+            data[:, 1:-1, 1:-1, 1:-1, 1] = np.array(self.data['mb_data']['eint'])
+            data[:, 1:-1, 1:-1, 1:-1, 2] = np.array(self.data['mb_data']['velx'])
+            data[:, 1:-1, 1:-1, 1:-1, 3] = np.array(self.data['mb_data']['vely'])
+            data[:, 1:-1, 1:-1, 1:-1, 4] = np.array(self.data['mb_data']['velz'])
+            data[:, 1:-1, 1:-1, 1:-1, 5] = np.array(self.data['mb_data']['bcc1'])
+            data[:, 1:-1, 1:-1, 1:-1, 6] = np.array(self.data['mb_data']['bcc2'])
+            data[:, 1:-1, 1:-1, 1:-1, 7] = np.array(self.data['mb_data']['bcc3'])
+
         self.prims = data.transpose((0, 3, 2, 1, 4))
 
         self.slices = []
