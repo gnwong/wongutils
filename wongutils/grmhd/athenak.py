@@ -19,6 +19,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import struct
 import numpy as np
 from tqdm import tqdm
 
@@ -30,7 +31,7 @@ class AthenaKSnapshot:
     def __init__(self, fname, populate_ghostzones=True, verbose=False,
                  variable_mapping=None):
         """
-        Load Athena++ snapshot file and return data in a dictionary.
+        Load AthenaK snapshot file and return data in a dictionary.
 
         :arg fname: filename of snapshot file to load
         :arg populate_ghostzones: (default=True) whether to populate ghost zones
@@ -434,3 +435,336 @@ class AthenaKSnapshot:
             self._populate_ghostzones_meshblock(mbi)
 
         self.prims = data
+
+
+class AthenaKRestart:
+    _PARAMETER_SCAN_LIMIT = 40 * 1024
+    _REGION_SIZE_FIELDS = (
+        'x1min', 'x2min', 'x3min',
+        'x1max', 'x2max', 'x3max',
+        'dx1', 'dx2', 'dx3',
+    )
+    _REGION_INDCS_FIELDS = (
+        'ng', 'nx1', 'nx2', 'nx3',
+        'is', 'ie', 'js', 'je', 'ks', 'ke',
+        'cnx1', 'cnx2', 'cnx3',
+        'cis', 'cie', 'cjs', 'cje', 'cks', 'cke',
+    )
+
+    def __init__(self, fname):
+        """
+        Load an AthenaK restart file into byte-preserving sections.
+
+        :arg fname: filename of restart file to load
+        """
+
+        self.fname = fname
+
+        if fname.endswith('.rst'):
+            self.data = self._load_restart(fname)
+        else:
+            raise ValueError(f"Unsupported AthenaK restart filename: {fname}")
+
+        self.header = self.data['header_dict']
+        self.sections = self.data['sections']
+        self.raw_bytes = self.data['raw_bytes']
+
+    def __repr__(self):
+        """
+        Return a string representation of the AthenaKRestart object.
+        """
+
+        fields = [
+            f"fname={self.fname}",
+            f"time={self.data['time']}",
+            f"cycle={self.data['ncycle']}",
+            f"meshblocks={self.data['nmb_total']}",
+        ]
+        if self.data['n_records'] is not None:
+            fields.append(f"records={self.data['n_records']}")
+
+        return f"<AthenaKRestart: {', '.join(fields)}>"
+
+    def _load_restart(self, filename):
+
+        with open(filename, 'rb') as fp:
+            raw = fp.read()
+
+        filedata = {'raw_bytes': raw}
+
+        parameter_data = self._extract_parameter_dump(raw)
+        filedata.update(parameter_data)
+
+        mesh_header = self._load_mesh_header(raw, parameter_data['parameter_dump_end'],
+                                             parameter_data['header_dict'])
+        filedata.update(mesh_header)
+
+        cursor = mesh_header['mesh_header_end']
+        nmb_total = mesh_header['nmb_total']
+
+        logical_locations_size = nmb_total * 4 * np.dtype(np.int32).itemsize
+        costs_size = nmb_total * np.dtype(np.float32).itemsize
+        section2_end = cursor + logical_locations_size + costs_size
+        if section2_end > len(raw):
+            raise ValueError('restart file ended while reading meshblock metadata')
+
+        logical_locations = np.frombuffer(raw, dtype=np.int32, count=4 * nmb_total,
+                                          offset=cursor).copy().reshape(nmb_total, 4)
+        costs = np.frombuffer(raw, dtype=np.float32, count=nmb_total,
+                              offset=cursor + logical_locations_size).copy()
+
+        filedata['logical_locations'] = logical_locations
+        filedata['costs'] = costs
+        filedata['section2_start'] = cursor
+        filedata['section2_end'] = section2_end
+
+        payload_data = self._load_payload_layout(raw, section2_end,
+                                                 mesh_header['mb_indcs'],
+                                                 mesh_header['real_size'],
+                                                 nmb_total)
+        filedata.update(payload_data)
+
+        filedata['sections'] = {
+            'parameter_dump': raw[:parameter_data['parameter_dump_end']],
+            'mesh_header': raw[parameter_data['parameter_dump_end']:mesh_header['mesh_header_end']],
+            'meshblock_metadata': raw[cursor:section2_end],
+            'internal_state': filedata['internal_state_raw'],
+            'data_size': filedata['data_size_raw'],
+            'payload': filedata['payload_raw'],
+            'tail': filedata['tail_raw'],
+        }
+
+        return filedata
+
+    def _extract_parameter_dump(self, raw):
+        scan = raw[:self._PARAMETER_SCAN_LIMIT]
+        marker = scan.find(b'<par_end>')
+        if marker < 0:
+            raise ValueError('unable to find <par_end> in the restart parameter dump')
+
+        line_end = raw.find(b'\n', marker)
+        if line_end < 0:
+            raise ValueError('restart parameter dump ended without a newline')
+
+        parameter_dump_end = line_end + 1
+        parameter_dump = raw[:parameter_dump_end]
+        header_lines = [
+            line.decode('utf-8').split('#')[0].strip()
+            for line in parameter_dump.splitlines()
+        ]
+        header_lines = [line for line in header_lines if len(line) > 0 and line != '<par_end>']
+
+        return {
+            'parameter_dump': parameter_dump,
+            'parameter_dump_end': parameter_dump_end,
+            'header_lines': header_lines,
+            'header_dict': self._parse_parameter_dump(header_lines),
+            'parameter_text': parameter_dump.decode('utf-8'),
+        }
+
+    def _parse_parameter_dump(self, header):
+        header_dict = {}
+        group = None
+        for line in [ln.strip() for ln in header]:
+            if line.startswith('#'):
+                continue
+            if line.startswith('<') and line.endswith('>'):
+                group = line[1:-1]
+                if group not in header_dict:
+                    header_dict[group] = {}
+                continue
+            if group is None:
+                continue
+            ltoks = line.split('=')
+            if len(ltoks) != 2:
+                continue
+            value = ltoks[1].strip()
+            try:
+                value = int(value)
+            except ValueError:
+                try:
+                    value = float(value)
+                except ValueError:
+                    pass
+            header_dict[group][ltoks[0].strip()] = value
+        return header_dict
+
+    def _load_mesh_header(self, raw, offset, header_dict):
+        candidates = []
+        for real_dtype in (np.float64, np.float32):
+            candidate = self._parse_mesh_header_candidate(raw, offset, real_dtype)
+            score = self._score_mesh_header_candidate(candidate, header_dict)
+            if score is not None:
+                candidate['score'] = score
+                candidates.append(candidate)
+
+        if len(candidates) == 0:
+            raise ValueError('unable to infer restart floating-point precision')
+
+        best = max(candidates, key=lambda candidate: (candidate['score'],
+                                                      candidate['real_size']))
+        return best
+
+    def _parse_mesh_header_candidate(self, raw, offset, real_dtype):
+        real_dtype = np.dtype(real_dtype)
+        real_size = real_dtype.itemsize
+        cursor = offset
+
+        mesh_header_size = 8 + 9 * real_size + 19 * 4 + 19 * 4 + 2 * real_size + 4
+        if cursor + mesh_header_size > len(raw):
+            raise ValueError('restart file ended while reading the mesh header')
+
+        nmb_total, root_level = struct.unpack_from('@ii', raw, cursor)
+        cursor += 8
+
+        mesh_size_values = np.frombuffer(raw, dtype=real_dtype, count=9, offset=cursor).copy()
+        cursor += 9 * real_size
+
+        mesh_indcs_values = np.frombuffer(raw, dtype=np.int32, count=19, offset=cursor).copy()
+        cursor += 19 * np.dtype(np.int32).itemsize
+
+        mb_indcs_values = np.frombuffer(raw, dtype=np.int32, count=19, offset=cursor).copy()
+        cursor += 19 * np.dtype(np.int32).itemsize
+
+        time, dt = np.frombuffer(raw, dtype=real_dtype, count=2, offset=cursor).copy()
+        cursor += 2 * real_size
+
+        ncycle = struct.unpack_from('@i', raw, cursor)[0]
+        cursor += 4
+
+        return {
+            'real_dtype': real_dtype,
+            'real_size': real_size,
+            'nmb_total': nmb_total,
+            'root_level': root_level,
+            'mesh_size': dict(zip(self._REGION_SIZE_FIELDS, mesh_size_values)),
+            'mesh_indcs': dict(zip(self._REGION_INDCS_FIELDS, mesh_indcs_values)),
+            'mb_indcs': dict(zip(self._REGION_INDCS_FIELDS, mb_indcs_values)),
+            'mesh_size_values': mesh_size_values,
+            'mesh_indcs_values': mesh_indcs_values,
+            'mb_indcs_values': mb_indcs_values,
+            'time': float(time),
+            'dt': float(dt),
+            'ncycle': ncycle,
+            'mesh_header_end': cursor,
+        }
+
+    def _score_mesh_header_candidate(self, candidate, header_dict):
+        if candidate['nmb_total'] <= 0:
+            return None
+        if candidate['root_level'] < 0 or candidate['ncycle'] < 0:
+            return None
+        if not np.all(np.isfinite(candidate['mesh_size_values'])):
+            return None
+        if not np.isfinite(candidate['time']) or not np.isfinite(candidate['dt']):
+            return None
+        if candidate['mesh_indcs']['ng'] < 0 or candidate['mb_indcs']['ng'] < 0:
+            return None
+
+        score = 0
+        comparisons = (
+            ('mesh', 'x1min', candidate['mesh_size']['x1min'], 'float'),
+            ('mesh', 'x1max', candidate['mesh_size']['x1max'], 'float'),
+            ('mesh', 'x2min', candidate['mesh_size']['x2min'], 'float'),
+            ('mesh', 'x2max', candidate['mesh_size']['x2max'], 'float'),
+            ('mesh', 'x3min', candidate['mesh_size']['x3min'], 'float'),
+            ('mesh', 'x3max', candidate['mesh_size']['x3max'], 'float'),
+            ('mesh', 'nx1', candidate['mesh_indcs']['nx1'], 'int'),
+            ('mesh', 'nx2', candidate['mesh_indcs']['nx2'], 'int'),
+            ('mesh', 'nx3', candidate['mesh_indcs']['nx3'], 'int'),
+            ('mesh', 'nghost', candidate['mesh_indcs']['ng'], 'int'),
+            ('meshblock', 'nx1', candidate['mb_indcs']['nx1'], 'int'),
+            ('meshblock', 'nx2', candidate['mb_indcs']['nx2'], 'int'),
+            ('meshblock', 'nx3', candidate['mb_indcs']['nx3'], 'int'),
+        )
+
+        for group, key, value, kind in comparisons:
+            expected = header_dict.get(group, {}).get(key)
+            if expected is None:
+                continue
+            if kind == 'int':
+                if int(expected) != int(value):
+                    return None
+            else:
+                if not np.isclose(float(expected), float(value), rtol=1.e-5, atol=1.e-7):
+                    return None
+            score += 1
+
+        return score
+
+    def _load_payload_layout(self, raw, section2_end, mb_indcs, real_size, nmb_total):
+        candidate = self._find_data_size_offset(raw, section2_end, mb_indcs, real_size,
+                                                nmb_total)
+        if candidate is None:
+            return {
+                'internal_state_raw': raw[section2_end:],
+                'data_size_raw': b'',
+                'data_size': None,
+                'data_size_offset': None,
+                'payload_raw': b'',
+                'payload_records': tuple(),
+                'payload_offsets': np.array([], dtype=np.uint64),
+                'n_records': None,
+                'tail_raw': raw[section2_end:],
+            }
+
+        data_size_offset, data_size, n_records = candidate
+        payload_offset = data_size_offset + np.dtype(np.uint64).itemsize
+        payload_raw = raw[payload_offset:]
+        payload_view = memoryview(payload_raw)
+
+        payload_offsets = np.arange(n_records + 1, dtype=np.uint64) * data_size
+        payload_records = tuple(
+            payload_view[int(payload_offsets[i]):int(payload_offsets[i + 1])]
+            for i in range(n_records)
+        )
+
+        return {
+            'internal_state_raw': raw[section2_end:data_size_offset],
+            'data_size_raw': raw[data_size_offset:payload_offset],
+            'data_size': data_size,
+            'data_size_offset': data_size_offset,
+            'payload_raw': payload_raw,
+            'payload_records': payload_records,
+            'payload_offsets': payload_offsets,
+            'n_records': n_records,
+            'tail_raw': raw[section2_end:],
+        }
+
+    def _find_data_size_offset(self, raw, offset, mb_indcs, real_size, nmb_total):
+        min_record_size = self._minimum_record_size(mb_indcs, real_size)
+        max_search = min(len(raw) - np.dtype(np.uint64).itemsize, offset + 1024 * 1024)
+
+        candidates = []
+        for data_size_offset in range(offset, max_search + 1):
+            data_size = struct.unpack_from('@Q', raw, data_size_offset)[0]
+            if data_size < min_record_size or data_size % real_size != 0:
+                continue
+
+            payload_nbytes = len(raw) - (data_size_offset + np.dtype(np.uint64).itemsize)
+            if payload_nbytes < data_size or payload_nbytes % data_size != 0:
+                continue
+
+            n_records = payload_nbytes // data_size
+            if n_records == 0 or n_records > nmb_total:
+                continue
+
+            step3_size = data_size_offset - offset
+            score = (3 if n_records == nmb_total else 0) - step3_size
+            candidates.append((score, step3_size, data_size_offset, data_size, n_records))
+
+        if len(candidates) == 0:
+            return None
+
+        _, _, data_size_offset, data_size, n_records = max(
+            candidates,
+            key=lambda item: (item[0], -item[1], item[3]),
+        )
+        return data_size_offset, data_size, n_records
+
+    def _minimum_record_size(self, mb_indcs, real_size):
+        ng = mb_indcs['ng']
+        nout1 = mb_indcs['nx1'] + 2 * ng
+        nout2 = mb_indcs['nx2'] + 2 * ng if mb_indcs['nx2'] > 1 else 1
+        nout3 = mb_indcs['nx3'] + 2 * ng if mb_indcs['nx3'] > 1 else 1
+        return nout1 * nout2 * nout3 * real_size
