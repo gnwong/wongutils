@@ -485,8 +485,55 @@ class AthenaKRestart:
 
         return f"<AthenaKRestart: {', '.join(fields)}>"
 
-    def _load_restart(self, filename):
+    def write(self, filename):
+        """
+        Write this restart file.
 
+        :arg filename: filename where the restart file should be written
+        """
+
+        sections = self._serialize_sections()
+        raw = b''.join((
+            sections['parameter_dump'],
+            sections['mesh_header'],
+            sections['meshblock_metadata'],
+            sections['internal_state'],
+            sections['data_size'],
+            sections['payload'],
+        ))
+
+        with open(filename, 'wb') as fp:
+            fp.write(raw)
+
+        self.sections = sections
+        self.raw_bytes = raw
+        self.data['sections'] = sections
+        self.data['raw_bytes'] = raw
+        self.data['parameter_dump'] = sections['parameter_dump']
+        self.data['data_size'] = struct.unpack('@Q', sections['data_size'])[0]
+        self.data['data_size_raw'] = sections['data_size']
+        self.data['payload_raw'] = sections['payload']
+        self.data['n_records'] = len(sections['payload']) // self.data['data_size']
+        self.data['tail_raw'] = sections['tail']
+
+    def _serialize_sections(self):
+        data_size = self._get_serialized_data_size()
+        sections = {
+            'parameter_dump': self._serialize_parameter_dump(),
+            'mesh_header': self._serialize_mesh_header(),
+            'meshblock_metadata': self._serialize_meshblock_metadata(),
+            'internal_state': self._coerce_bytes(self.data.get('internal_state_raw', b'')),
+            'data_size': struct.pack('@Q', data_size),
+            'payload': self._serialize_payload(data_size),
+        }
+        sections['tail'] = b''.join((
+            sections['internal_state'],
+            sections['data_size'],
+            sections['payload'],
+        ))
+        return sections
+
+    def _load_restart(self, filename):
         with open(filename, 'rb') as fp:
             raw = fp.read()
 
@@ -589,6 +636,25 @@ class AthenaKRestart:
             header_dict[group][ltoks[0].strip()] = value
         return header_dict
 
+    def _serialize_parameter_dump(self):
+        parameter_text = self.data.get('parameter_text')
+        if parameter_text is None:
+            header_lines = self.data.get('header_lines')
+            if header_lines is None:
+                raise ValueError('unable to serialize restart parameter dump')
+            parameter_text = '\n'.join(header_lines)
+            if len(parameter_text) > 0 and not parameter_text.endswith('\n'):
+                parameter_text += '\n'
+            parameter_text += '<par_end>\n'
+        elif '<par_end>' not in parameter_text:
+            if len(parameter_text) > 0 and not parameter_text.endswith('\n'):
+                parameter_text += '\n'
+            parameter_text += '<par_end>\n'
+        elif not parameter_text.endswith('\n'):
+            parameter_text += '\n'
+
+        return parameter_text.encode('utf-8')
+
     def _load_mesh_header(self, raw, offset, header_dict):
         candidates = []
         for real_dtype in (np.float64, np.float32):
@@ -648,6 +714,34 @@ class AthenaKRestart:
             'ncycle': ncycle,
             'mesh_header_end': cursor,
         }
+
+    def _serialize_mesh_header(self):
+        real_dtype = self._get_real_dtype()
+
+        mesh_size_values = [
+            self.data['mesh_size'][field]
+            for field in self._REGION_SIZE_FIELDS
+        ]
+        mesh_indcs_values = [
+            self.data['mesh_indcs'][field]
+            for field in self._REGION_INDCS_FIELDS
+        ]
+        mb_indcs_values = [
+            self.data['mb_indcs'][field]
+            for field in self._REGION_INDCS_FIELDS
+        ]
+
+        header = bytearray()
+        header.extend(struct.pack('@ii',
+                                  int(self.data['nmb_total']),
+                                  int(self.data['root_level'])))
+        header.extend(np.asarray(mesh_size_values, dtype=real_dtype).tobytes())
+        header.extend(np.asarray(mesh_indcs_values, dtype=np.int32).tobytes())
+        header.extend(np.asarray(mb_indcs_values, dtype=np.int32).tobytes())
+        header.extend(np.asarray([self.data['time'], self.data['dt']],
+                                 dtype=real_dtype).tobytes())
+        header.extend(struct.pack('@i', int(self.data['ncycle'])))
+        return bytes(header)
 
     def _score_mesh_header_candidate(self, candidate, header_dict):
         if candidate['nmb_total'] <= 0:
@@ -731,6 +825,17 @@ class AthenaKRestart:
             'tail_raw': raw[section2_end:],
         }
 
+    def _serialize_meshblock_metadata(self):
+        logical_locations = np.asarray(self.data['logical_locations'], dtype=np.int32)
+        costs = np.asarray(self.data['costs'], dtype=np.float32)
+
+        if logical_locations.shape != (int(self.data['nmb_total']), 4):
+            raise ValueError('logical_locations does not match nmb_total')
+        if costs.shape != (int(self.data['nmb_total']),):
+            raise ValueError('costs does not match nmb_total')
+
+        return logical_locations.tobytes() + costs.tobytes()
+
     def _find_data_size_offset(self, raw, offset, mb_indcs, real_size, nmb_total):
         min_record_size = self._minimum_record_size(mb_indcs, real_size)
         max_search = min(len(raw) - np.dtype(np.uint64).itemsize, offset + 1024 * 1024)
@@ -768,3 +873,68 @@ class AthenaKRestart:
         nout2 = mb_indcs['nx2'] + 2 * ng if mb_indcs['nx2'] > 1 else 1
         nout3 = mb_indcs['nx3'] + 2 * ng if mb_indcs['nx3'] > 1 else 1
         return nout1 * nout2 * nout3 * real_size
+
+    def _serialize_payload(self, data_size):
+        payload_records = self.data.get('payload_records', tuple())
+        if len(payload_records) > 0:
+            payload_parts = []
+            for record in payload_records:
+                record_bytes = self._coerce_bytes(record)
+                if len(record_bytes) != data_size:
+                    raise ValueError('restart payload record size is inconsistent')
+                payload_parts.append(record_bytes)
+            payload = b''.join(payload_parts)
+        else:
+            payload = self._coerce_bytes(self.data.get('payload_raw', b''))
+
+        if len(payload) == 0:
+            raise ValueError('restart payload is empty')
+        if len(payload) % data_size != 0:
+            raise ValueError('restart payload size is inconsistent with data_size')
+
+        n_records = len(payload) // data_size
+        expected_n_records = self.data.get('n_records')
+        if expected_n_records is not None and n_records != int(expected_n_records):
+            raise ValueError('restart payload record count is inconsistent')
+
+        return payload
+
+    def _get_serialized_data_size(self):
+        data_size = self.data.get('data_size')
+        if data_size is not None:
+            return int(data_size)
+
+        payload_records = self.data.get('payload_records', tuple())
+        if len(payload_records) > 0:
+            data_size = len(self._coerce_bytes(payload_records[0]))
+            for record in payload_records[1:]:
+                if len(self._coerce_bytes(record)) != data_size:
+                    raise ValueError('restart payload records do not share a common size')
+            return data_size
+
+        payload = self._coerce_bytes(self.data.get('payload_raw', b''))
+        n_records = self.data.get('n_records')
+        if len(payload) == 0 or n_records in [None, 0]:
+            raise ValueError('unable to determine restart data_size')
+        if len(payload) % int(n_records) != 0:
+            raise ValueError('restart payload size is inconsistent with n_records')
+        return len(payload) // int(n_records)
+
+    def _get_real_dtype(self):
+        real_dtype = self.data.get('real_dtype')
+        if real_dtype is not None:
+            return np.dtype(real_dtype)
+
+        real_size = int(self.data['real_size'])
+        if real_size == 4:
+            return np.dtype(np.float32)
+        if real_size == 8:
+            return np.dtype(np.float64)
+        raise ValueError(f'unsupported restart real size: {real_size}')
+
+    def _coerce_bytes(self, payload):
+        if isinstance(payload, memoryview):
+            return payload.tobytes()
+        if isinstance(payload, bytearray):
+            return bytes(payload)
+        return payload
