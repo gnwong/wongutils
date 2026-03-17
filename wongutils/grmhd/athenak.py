@@ -31,7 +31,7 @@ class AthenaKSnapshot:
     def __init__(self, fname, populate_ghostzones=True, verbose=False,
                  variable_mapping=None):
         """
-        Load AthenaK snapshot file and return data in a dictionary.
+        Load an AthenaK snapshot file.
 
         :arg fname: filename of snapshot file to load
         :arg populate_ghostzones: (default=True) whether to populate ghost zones
@@ -64,12 +64,14 @@ class AthenaKSnapshot:
         """
         Get primitive variables at the specified coordinates.
 
+        The input coordinate arrays must have the same shape.
+
         :arg X: x1 coordinates
         :arg Y: x2 coordinates
         :arg Z: x3 coordinates
         :arg interpolation: (default='linear') interpolation method to use
 
-        :returns: primitive variables at the specified coordinates
+        :returns: primitive variables with shape ``X.shape + (self.nvars,)``
         """
 
         nx, ny, nz = X.shape
@@ -92,6 +94,42 @@ class AthenaKSnapshot:
 
         # reshape the interpolated data to match the input shape
         return interpolated.reshape((nx, ny, nz, self.nvars))
+
+    def get_cell_centers(self):
+        """
+        Get cell-center coordinates for each meshblock.
+
+        The returned arrays follow the same meshblock-first spatial layout as
+        ``self.prims[..., 0]`` and include the ghost-zone layer populated by
+        the snapshot loader.
+
+        :returns: tuple ``(X, Y, Z)`` of x1, x2, and x3 cell-center
+                  coordinate arrays
+
+        """
+        nmb, nx1g, nx2g, nx3g = self.prims.shape[:-1]
+        nx1 = nx1g - 2
+        nx2 = nx2g - 2
+        nx3 = nx3g - 2
+
+        x1 = np.empty((nmb, nx1g), dtype=self.mb_geometry.dtype)
+        x2 = np.empty((nmb, nx2g), dtype=self.mb_geometry.dtype)
+        x3 = np.empty((nmb, nx3g), dtype=self.mb_geometry.dtype)
+
+        for mbi, (x1min, x1max, x2min, x2max, x3min, x3max) in enumerate(self.mb_geometry):
+            dx1 = (x1max - x1min) / nx1
+            dx2 = (x2max - x2min) / nx2
+            dx3 = (x3max - x3min) / nx3
+
+            x1[mbi] = np.linspace(x1min - 0.5 * dx1, x1max + 0.5 * dx1, nx1g)
+            x2[mbi] = np.linspace(x2min - 0.5 * dx2, x2max + 0.5 * dx2, nx2g)
+            x3[mbi] = np.linspace(x3min - 0.5 * dx3, x3max + 0.5 * dx3, nx3g)
+
+        X = np.broadcast_to(x1[:, :, None, None], (nmb, nx1g, nx2g, nx3g)).copy()
+        Y = np.broadcast_to(x2[:, None, :, None], (nmb, nx1g, nx2g, nx3g)).copy()
+        Z = np.broadcast_to(x3[:, None, None, :], (nmb, nx1g, nx2g, nx3g)).copy()
+
+        return X, Y, Z
 
     def _load_binary(self, filename):
         """
@@ -256,7 +294,7 @@ class AthenaKSnapshot:
         return filedata
 
     def _parse_header(self, header):
-        """Parse the header of a AthenaK snapshot file."""
+        """Parse the header of an AthenaK snapshot file."""
         header_dict = dict()
         group = None
         for line in [ln.strip() for ln in header]:
@@ -487,7 +525,7 @@ class AthenaKRestart:
 
     def write(self, filename):
         """
-        Write this restart file.
+        Write this restart file and update cached serialized sections.
 
         :arg filename: filename where the restart file should be written
         """
