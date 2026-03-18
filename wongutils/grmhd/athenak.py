@@ -73,8 +73,32 @@ class AthenaKSnapshot:
 
         :returns: primitive variables with shape ``X.shape + (self.nvars,)``
         """
+        return self.get_at(self.prims, X, Y, Z, interpolation=interpolation)
 
-        nx, ny, nz = X.shape
+    def get_at(self, data, X, Y, Z, interpolation='linear'):
+        """
+        Interpolate meshblock data at the specified coordinates.
+
+        The input coordinate arrays must have the same shape. If the snapshot
+        is sliced along one dimension, the corresponding input coordinates are
+        ignored and replaced with the slice position before interpolation.
+
+        :arg data: meshblock data to interpolate, with shape
+                   ``(nmb, nx1, nx2, nx3, ...)``
+        :arg X: x1 coordinates
+        :arg Y: x2 coordinates
+        :arg Z: x3 coordinates
+        :arg interpolation: (default='linear') interpolation method to use
+
+        :returns: interpolated data with shape ``X.shape + data.shape[4:]``
+        """
+        X = np.asarray(X)
+        Y = np.asarray(Y)
+        Z = np.asarray(Z)
+        shape = X.shape
+
+        if Y.shape != shape or Z.shape != shape:
+            raise ValueError("X, Y, and Z must have the same shape.")
 
         if self.slices_position[0] is not None:
             X = np.full_like(X, self.slices_position[0])
@@ -84,16 +108,16 @@ class AthenaKSnapshot:
             Z = np.full_like(Z, self.slices_position[2])
 
         positions = np.column_stack((X.ravel(), Y.ravel(), Z.ravel()))
-        interpolated = self.meshblocks.interpolate_data_at(self.prims, positions,
+        interpolated = self.meshblocks.interpolate_data_at(data, positions,
                                                            slice_dim=self.slice_dim,
                                                            interpolation=interpolation)
 
         if interpolated is None:
             print('No data found at the specified coordinates.')
-            return np.full((nx, ny, nz, self.nvars), np.nan)
+            return np.full(shape + data.shape[4:], np.nan)
 
         # reshape the interpolated data to match the input shape
-        return interpolated.reshape((nx, ny, nz, self.nvars))
+        return interpolated.reshape(shape + data.shape[4:])
 
     def get_cell_centers(self):
         """
