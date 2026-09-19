@@ -23,7 +23,7 @@ import struct
 import numpy as np
 from tqdm import tqdm
 
-from wongutils.grmhd.meshblocks import Meshblocks
+from wongutils.grmhd.meshblocks import BalancedMeshblocks
 
 
 class AthenaKSnapshot:
@@ -418,10 +418,26 @@ class AthenaKSnapshot:
                 f"{nx1}, {nx2}, {nx3}"
             )
 
-        self.meshblocks = Meshblocks(self.mb_geometry, self.mb_levels,
-                                     nx1_out, nx2_out, nx3_out)
+        self.meshblocks = BalancedMeshblocks(
+            self.mb_geometry, self.mb_levels, self.data['mb_logical'],
+            nx1_out, nx2_out, nx3_out)
 
     def _populate_ghostzones_meshblock(self, mbi):
+
+        if self.meshblocks.is_balanced:
+            interpolated = self.meshblocks.interpolate_ghostzones(self.prims, mbi)
+            return self._store_ghostzone_faces(
+                mbi, interpolated, self.meshblocks.ghost_faces)
+
+        return self._populate_ghostzones_meshblock_general(mbi)
+
+    def _populate_ghostzones_meshblock_general(self, mbi):
+        """Populate a ghost shell using physical-coordinate block lookup.
+
+        This path assumes same-level cell centers are aligned. Because
+        block bounds are inclusive, ownership of a point shared by
+        multiple block boundaries is resolved by meshblock ordering.
+        """
 
         nx1 = self.data['nx1_out_mb']
         nx2 = self.data['nx2_out_mb']
@@ -434,6 +450,7 @@ class AthenaKSnapshot:
 
         face_indices = [(0, 0), (0, -1), (1, 0), (1, -1), (2, 0), (2, -1)]
         all_positions = []
+        all_block_ids = []
         face_infos = []
 
         for axis, idx in face_indices:
@@ -443,24 +460,39 @@ class AthenaKSnapshot:
                 x2g, x3g = np.meshgrid(x2v, x3v, indexing='ij')
                 x1g = np.full_like(x2g, x1v[idx])
                 positions = np.column_stack((x1g.ravel(), x2g.ravel(), x3g.ravel()))
+                block_ids = self.meshblocks.find_blocks_for_plane(
+                    mbi, axis, x1v[idx], x2v, x3v)
                 shape = x1g.shape
             elif axis == 1:
                 x1g, x3g = np.meshgrid(x1v, x3v, indexing='ij')
                 x2g = np.full_like(x1g, x2v[idx])
                 positions = np.column_stack((x1g.ravel(), x2g.ravel(), x3g.ravel()))
+                block_ids = self.meshblocks.find_blocks_for_plane(
+                    mbi, axis, x2v[idx], x1v, x3v)
                 shape = x1g.shape
             elif axis == 2:
                 x1g, x2g = np.meshgrid(x1v, x2v, indexing='ij')
                 x3g = np.full_like(x1g, x3v[idx])
                 positions = np.column_stack((x1g.ravel(), x2g.ravel(), x3g.ravel()))
+                block_ids = self.meshblocks.find_blocks_for_plane(
+                    mbi, axis, x3v[idx], x1v, x2v)
                 shape = x1g.shape
 
             all_positions.append(positions)
+            all_block_ids.append(block_ids)
             face_infos.append((axis, idx, shape, positions.shape[0]))
 
         all_positions = np.vstack(all_positions)
+        all_block_ids = np.concatenate(all_block_ids)
+        target_level = self.mb_levels[mbi]
         interpolated = self.meshblocks.interpolate_data_at(self.prims, all_positions,
-                                                           slice_dim=self.slice_dim)
+                                                           slice_dim=self.slice_dim,
+                                                           block_ids=all_block_ids,
+                                                           target_level=target_level)
+
+        return self._store_ghostzone_faces(mbi, interpolated, face_infos)
+
+    def _store_ghostzone_faces(self, mbi, interpolated, face_infos):
 
         failures = 0
         if interpolated is None:
