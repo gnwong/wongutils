@@ -3,7 +3,7 @@ from pathlib import Path
 from setuptools import setup, find_packages
 
 setup(name="wongutils",
-      version="0.1.11",
+      version="0.1.12",
       description="Utilities for simulations, black hole calculations, and visualization",
       long_description=Path(__file__).with_name("README.md").read_text(encoding="utf-8"),
       long_description_content_type="text/markdown",
