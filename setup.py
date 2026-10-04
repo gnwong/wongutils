@@ -8,4 +8,5 @@ setup(name="wongutils",
       author_email="gnwong@ias.edu",
       license="MIT",
       packages=find_packages(),
+      install_requires=["numpy", "scipy", "h5py", "tqdm"],
       zip_safe=False)
